@@ -8,52 +8,12 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer 
 } from 'recharts';
 
-// --- MOCK DATA ---
-const MOCK_DEVICES = [
-  { id: 'DEV-001', serialNumber: 'SN-9345-8123', ownerName: 'Alice Smith', connectivityStatus: 'Online', batteryLevel: 85, signalStrength: 4, firmwareVersion: 'v4.2.0', firmwareUpdateAvailable: false, lastSync: '2 min ago' },
-  { id: 'DEV-002', serialNumber: 'SN-9345-8124', ownerName: '', connectivityStatus: 'Offline', batteryLevel: 12, signalStrength: 0, firmwareVersion: 'v4.1.9', firmwareUpdateAvailable: true, lastSync: '3 days ago' },
-  { id: 'DEV-003', serialNumber: 'SN-9345-8125', ownerName: 'Bob Jones', connectivityStatus: 'Online', batteryLevel: 45, signalStrength: 3, firmwareVersion: 'v4.2.0', firmwareUpdateAvailable: false, lastSync: '10 min ago' },
-  { id: 'DEV-004', serialNumber: 'SN-9345-8126', ownerName: 'Charlie Davis', connectivityStatus: 'Online', batteryLevel: 98, signalStrength: 2, firmwareVersion: 'v4.2.0', firmwareUpdateAvailable: false, lastSync: '1 min ago' },
-  { id: 'DEV-005', serialNumber: 'SN-9345-8127', ownerName: 'Diana Prince', connectivityStatus: 'Offline', batteryLevel: 0, signalStrength: 0, firmwareVersion: 'v4.0.0', firmwareUpdateAvailable: true, lastSync: '2 weeks ago' },
-];
-
-const MOCK_DETAIL_DATA = {
-  signalAnalysis: {
-    averageSignalRate: '98%',
-    totalReadings: '14,520',
-    dataCompleteness: '99.9%',
-    motionIncidents: 3,
-    trendData: [
-      { time: '00:00', rate: 95 }, { time: '04:00', rate: 98 }, { time: '08:00', rate: 99 },
-      { time: '12:00', rate: 97 }, { time: '16:00', rate: 99 }, { time: '20:00', rate: 98 },
-      { time: '24:00', rate: 99 },
-    ]
-  },
-  motionArtifactFlags: [
-    { timestamp: '2023-10-25 14:32:00', duration: '45s', description: 'Possible motion interference' },
-    { timestamp: '2023-10-26 09:15:00', duration: '12s', description: 'Possible motion interference' },
-  ],
-  readings: Array.from({ length: 20 }).map((_, i) => ({
-    id: `rdg-${i}`,
-    timestamp: `2023-10-26 10:${i.toString().padStart(2, '0')}:00`,
-    accelX: (Math.random() * 2 - 1).toFixed(2),
-    accelY: (Math.random() * 2 - 1).toFixed(2),
-    accelZ: (Math.random() * 2 - 1).toFixed(2),
-    ecgCh1: (Math.random() * 5).toFixed(2),
-    ecgCh2: (Math.random() * 5).toFixed(2),
-    sessionId: `SESS-${(i % 3) + 1}`
-  })),
-  readingSessions: [
-    { id: 'SESS-1', type: 'Scheduled', start: '2023-10-26 10:00', end: '2023-10-26 10:30', samples: 1800 },
-    { id: 'SESS-2', type: 'Manual', start: '2023-10-26 14:00', end: '2023-10-26 14:15', samples: 900 },
-    { id: 'SESS-3', type: 'Alarm', start: '2023-10-26 18:22', end: '2023-10-26 18:25', samples: 180 },
-  ]
-};
+// Removed mock data
 
 // --- TYPES ---
 export interface DevicesPageProps {
   userRole?: string;
-  devices?: typeof MOCK_DEVICES;
+  devices?: any[];
   isLoading?: boolean;
   getDeviceDetail?: (deviceId: string) => Promise<any>;
   onManageCommands?: (deviceId: string) => void;
@@ -106,9 +66,38 @@ const SignalIndicator = ({ strength }: { strength: number }) => {
 // --- MAIN PAGE ---
 export default function DevicesPage({
   userRole = 'administrator',
-  devices = MOCK_DEVICES,
+  devices = [],
   isLoading = false,
-  getDeviceDetail = async () => MOCK_DETAIL_DATA,
+  getDeviceDetail = async (deviceId: string) => {
+    try {
+      const telRes = await fetch(`/api/telemetry/${deviceId}`);
+      const readings = await telRes.json();
+      
+      return {
+        signalAnalysis: {
+          averageSignalRate: '100%',
+          totalReadings: readings?.length?.toString() || '0',
+          dataCompleteness: '100%',
+          motionIncidents: 0,
+          trendData: []
+        },
+        motionArtifactFlags: [],
+        readings: (readings || []).map((r: any) => ({
+          id: r.id,
+          timestamp: new Date(r.time).toLocaleString(),
+          accelX: r.accel_x,
+          accelY: r.accel_y,
+          accelZ: r.accel_z,
+          ecgCh1: r.ecg_ch1,
+          ecgCh2: r.ecg_ch2,
+          sessionId: r.session_id
+        })),
+        readingSessions: []
+      };
+    } catch (e) {
+      return null;
+    }
+  },
   onManageCommands = () => {},
   onExportReadings = () => {},
   onClearFilters = () => {},
@@ -116,7 +105,7 @@ export default function DevicesPage({
   onViewTelemetry
 }: DevicesPageProps) {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(initialSelectedDeviceId);
-  const [detailData, setDetailData] = useState<typeof MOCK_DETAIL_DATA | null>(null);
+  const [detailData, setDetailData] = useState<any | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
 
   // Filters state

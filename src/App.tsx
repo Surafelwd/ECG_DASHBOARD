@@ -5,7 +5,7 @@ import SignUpPage from './components/SignUpPage';
 import DevicesPage from './components/DevicesPage';
 import DeviceFleetDashboard from './components/DeviceFleetDashboard';
 import CommandCenter from './components/CommandCenter';
-import AlarmPage, { MOCK_ALARM_DATA, MOCK_STAFF_LIST } from './components/AlarmPage';
+import AlarmPage from './components/AlarmPage';
 import TelemetryDashboard from './components/TelemetryDashboard';
 
 export default function App() {
@@ -13,13 +13,28 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'login' | 'signup' | 'signup_success' | 'devices' | 'dashboard' | 'command_center' | 'alarms' | 'telemetry'>('dashboard');
   const [targetDeviceId, setTargetDeviceId] = useState<string | null>(null);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
-  const [alarms, setAlarms] = useState(MOCK_ALARM_DATA);
+  const [alarms, setAlarms] = useState<any[]>([]);
+  const [availableDevices, setAvailableDevices] = useState<any[]>([]);
 
-  const MOCK_DEVICES = [
-    { id: 'DEV-0198' },
-    { id: 'DEV-0199' },
-    { id: 'DEV-0200' },
-  ];
+  useEffect(() => {
+    // Fetch initial data
+    const fetchData = async () => {
+      try {
+        const [devicesRes, alarmsRes] = await Promise.all([
+          fetch('/api/devices'),
+          fetch('/api/alarms')
+        ]);
+        if (devicesRes.ok) setAvailableDevices(await devicesRes.json());
+        if (alarmsRes.ok) setAlarms(await alarmsRes.json());
+      } catch (err) {
+        console.error('Failed to fetch initial app data', err);
+      }
+    };
+    fetchData();
+    // Poll alarms every 10 seconds
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const navigateToDevices = (deviceId?: string) => {
     setTargetDeviceId(deviceId || null);
@@ -184,7 +199,7 @@ export default function App() {
             <div className="flex-1 overflow-hidden">
               {currentView === 'dashboard' && (
                 <DeviceFleetDashboard 
-                  availableDevices={MOCK_DEVICES}
+                  availableDevices={availableDevices}
                   onSearchDevice={(id) => navigateToCommandCenter(id)}
                   onNavigateToDevices={() => navigateToDevices()}
                   onViewDevice={(id) => navigateToDevices(id)}
@@ -203,7 +218,7 @@ export default function App() {
                   onAcknowledge={(id) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Acknowledged', history: [...a.history, { timestamp: new Date().toISOString(), action: 'Acknowledged', user: 'Admin' }] } : a))}
                   onResolve={(id, note) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Resolved', history: [...a.history, { timestamp: new Date().toISOString(), action: 'Resolved', user: 'Admin', note }] } : a))}
                   onReopen={(id) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Active', history: [...a.history, { timestamp: new Date().toISOString(), action: 'Reopened', user: 'Admin' }] } : a))}
-                  onAssign={(id, staffId) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, assignedTo: staffId, history: [...a.history, { timestamp: new Date().toISOString(), action: 'Assigned', user: 'Admin', note: `Assigned to ${MOCK_STAFF_LIST.find(s => s.id === staffId)?.name}` }] } : a))}
+                  onAssign={(id, staffId) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, assignedTo: staffId, history: [...(a.history || []), { timestamp: new Date().toISOString(), action: 'Assigned', user: 'Admin', note: `Assigned to ${staffId}` }] } : a))}
                   onViewDevice={(id) => navigateToDevices(id)}
                 />
               )}
@@ -232,7 +247,7 @@ export default function App() {
                       lossSensitivity: 5
                     }
                   }}
-                  availableDevices={MOCK_DEVICES}
+                  availableDevices={availableDevices}
                   onChangeDevice={(id) => setTargetDeviceId(id)}
                   onBack={() => navigateToDevices(targetDeviceId || undefined)}
                   onViewDataAnalysis={(id) => navigateToDevices(id)}

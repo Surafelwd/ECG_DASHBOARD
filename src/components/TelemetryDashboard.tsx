@@ -8,11 +8,6 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-// --- MOCK STREAM HOOK ---
-// This acts as a placeholder for a real WebSocket or Supabase Realtime feed.
-const MAX_VISIBLE_POINTS = 500;
-const MAX_LOG_LINES = 100;
-
 export interface TelemetryPoint {
   time: number;
   accelX: number;
@@ -29,103 +24,59 @@ export interface LogEntry {
   message: string;
 }
 
-export function useMockTelemetryStream(deviceId: string) {
+// --- API STREAM HOOK ---
+export function useTelemetryStream(deviceId: string) {
   const [data, setData] = useState<TelemetryPoint[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'LIVE' | 'RECONNECTING' | 'DISCONNECTED'>('LIVE');
+  const [connectionStatus, setConnectionStatus] = useState<'LIVE' | 'RECONNECTING' | 'DISCONNECTED'>('RECONNECTING');
   const [packetCount, setPacketCount] = useState(0);
 
-  const dataRef = useRef<TelemetryPoint[]>([]);
-  const logsRef = useRef<LogEntry[]>([]);
-  const packetRef = useRef(0);
-  const timeRef = useRef(0);
-
   const clearBuffers = useCallback(() => {
-    dataRef.current = [];
-    logsRef.current = [];
-    packetRef.current = 0;
     setData([]);
     setLogs([]);
     setPacketCount(0);
   }, []);
 
   useEffect(() => {
-    let animationFrameId: number;
-    let lastLogTime = Date.now();
+    if (!deviceId) return;
+    
+    let intervalId: any;
+    
+    const fetchData = async () => {
+      try {
+        setConnectionStatus(prev => prev === 'DISCONNECTED' ? 'RECONNECTING' : prev);
+        const res = await fetch(`/api/telemetry/${deviceId}`);
+        if (!res.ok) throw new Error('Network response was not ok');
+        const telemetry = await res.json();
+        
+        // Map backend format to TelemetryPoint format
+        const mappedData = telemetry.map((t: any) => ({
+          time: new Date(t.time).getTime(),
+          accelX: t.accel_x || 0,
+          accelY: t.accel_y || 0,
+          accelZ: t.accel_z || 0,
+          ecg1: t.ecg_ch1 || 0,
+          ecg2: t.ecg_ch2 || 0,
+          magnitude: Math.sqrt(
+            Math.pow(t.accel_x || 0, 2) + 
+            Math.pow(t.accel_y || 0, 2) + 
+            Math.pow(t.accel_z || 0, 2)
+          ) || 0
+        }));
 
-    const generateData = () => {
-      timeRef.current += 1;
-      const t = timeRef.current;
-      
-      // Simulate somewhat realistic sensor data
-      const accelX = Math.sin(t / 20) * 500 + (Math.random() - 0.5) * 100;
-      const accelY = Math.cos(t / 25) * 300 + (Math.random() - 0.5) * 100;
-      const accelZ = 980 + Math.sin(t / 50) * 100 + (Math.random() - 0.5) * 50; // Gravity + noise
-      
-      // ECG simulation (QRS complex)
-      const ecgCycle = t % 100;
-      let ecg1 = (Math.random() - 0.5) * 0.1;
-      let ecg2 = (Math.random() - 0.5) * 0.1;
-      if (ecgCycle > 80 && ecgCycle < 85) {
-        ecg1 += 1.5; // R peak
-        ecg2 -= 0.8;
-      } else if (ecgCycle >= 85 && ecgCycle < 88) {
-        ecg1 -= 0.5; // S wave
-        ecg2 += 0.3;
-      } else if (ecgCycle > 30 && ecgCycle < 45) {
-        ecg1 += Math.sin((ecgCycle - 30) / 15 * Math.PI) * 0.3; // T wave
-        ecg2 += Math.sin((ecgCycle - 30) / 15 * Math.PI) * 0.2;
+        setData(mappedData);
+        setPacketCount(telemetry.length);
+        setConnectionStatus('LIVE');
+      } catch (err) {
+        console.error('Error fetching telemetry:', err);
+        setConnectionStatus('DISCONNECTED');
       }
-
-      const magnitude = Math.sqrt(accelX*accelX + accelY*accelY + accelZ*accelZ);
-
-      const newPoint: TelemetryPoint = {
-        time: t,
-        accelX,
-        accelY,
-        accelZ,
-        ecg1,
-        ecg2,
-        magnitude
-      };
-
-      dataRef.current.push(newPoint);
-      if (dataRef.current.length > MAX_VISIBLE_POINTS) {
-        dataRef.current.shift();
-      }
-
-      packetRef.current += 1;
-      
-      const now = Date.now();
-      if (now - lastLogTime > 2000) {
-        const d = new Date();
-        const ts = `[${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}]`;
-        logsRef.current.push({
-          id: Math.random().toString(36).substr(2, 9),
-          timestamp: ts,
-          message: `Upload received — 50 rows`
-        });
-        if (logsRef.current.length > MAX_LOG_LINES) {
-          logsRef.current.shift();
-        }
-        lastLogTime = now;
-      }
-
-      // We throttle React state updates to roughly 30fps to keep rendering smooth
-      if (t % 2 === 0) {
-        setData([...dataRef.current]);
-        setLogs([...logsRef.current]);
-        setPacketCount(packetRef.current);
-      }
-
-      animationFrameId = requestAnimationFrame(generateData);
     };
 
-    animationFrameId = requestAnimationFrame(generateData);
+    fetchData(); // initial fetch
+    intervalId = setInterval(fetchData, 2000); // poll every 2 seconds
 
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
+    return () => clearInterval(intervalId);
   }, [deviceId]);
 
   return {
@@ -205,7 +156,7 @@ export interface TelemetryDashboardProps {
 }
 
 export default function TelemetryDashboard({ deviceId, ownerName, context }: TelemetryDashboardProps) {
-  const { data, logs, connectionStatus, packetCount, clearBuffers } = useMockTelemetryStream(deviceId);
+  const { data, logs, connectionStatus, packetCount, clearBuffers } = useTelemetryStream(deviceId);
   
   const latestData = data[data.length - 1] || { accelX: 0, accelY: 0, accelZ: 0, ecg1: 0, ecg2: 0, magnitude: 0 };
   const logContainerRef = useRef<HTMLDivElement>(null);

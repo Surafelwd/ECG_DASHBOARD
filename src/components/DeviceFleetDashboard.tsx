@@ -8,64 +8,20 @@ import {
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 
-// --- MOCK DATA ---
-const mockMetricsData = {
-  totalDevices: 1240,
-  online: 1185,
-  offline: 55,
-  activeAlarms: 12,
-  commandsToday: 342,
-  firmwareUpdatesPending: 89
-};
-
-const mockConnectivityTrend = [
-  { time: '00:00', online: 1190, offline: 50 },
-  { time: '04:00', online: 1188, offline: 52 },
-  { time: '08:00', online: 1195, offline: 45 },
-  { time: '12:00', online: 1180, offline: 60 },
-  { time: '16:00', online: 1182, offline: 58 },
-  { time: '20:00', online: 1185, offline: 55 },
-];
-
-const mockAlarmTrend = [
-  { time: '00:00', critical: 2, warning: 5, info: 12 },
-  { time: '04:00', critical: 1, warning: 4, info: 8 },
-  { time: '08:00', critical: 4, warning: 8, info: 15 },
-  { time: '12:00', critical: 3, warning: 6, info: 22 },
-  { time: '16:00', critical: 5, warning: 9, info: 18 },
-  { time: '20:00', critical: 2, warning: 5, info: 10 },
-];
-
-const mockFirmwareBreakdown = [
-  { name: 'v4.2.0', value: 850 },
-  { name: 'v4.1.9', value: 301 },
-  { name: 'v4.0.0', value: 89 },
-];
+// Removed mock data
 const FIRMWARE_COLORS = ['#1B7A6E', '#3ADB8F', '#7C8A94'];
 
-const mockRecentActivity = [
-  { id: '1', type: 'alarm', text: 'Signal Lost — Device DEV-0231', severity: 'critical', deviceId: 'DEV-0231', alarmId: 'ALM-101', timestamp: '2 min ago' },
-  { id: '2', type: 'command', text: 'Firmware update pushed to DEV-0198 by Admin', deviceId: 'DEV-0198', timestamp: '15 min ago' },
-  { id: '3', type: 'connectivity', text: 'DEV-0107 went offline', deviceId: 'DEV-0107', timestamp: '1 hour ago' },
-  { id: '4', type: 'alarm', text: 'Low Battery — Device DEV-0042', severity: 'warning', deviceId: 'DEV-0042', alarmId: 'ALM-102', timestamp: '2 hours ago' },
-  { id: '5', type: 'connectivity', text: 'DEV-0881 came online', deviceId: 'DEV-0881', timestamp: '3 hours ago' },
-];
-
-const mockRecentlyManagedDevice = {
-  deviceId: 'DEV-0198',
-  serialNumber: 'SN-9345-8201'
-};
 
 // --- TYPES ---
 export interface DeviceFleetDashboardProps {
   userName?: string;
   userRole?: string;
-  metricsData?: typeof mockMetricsData;
-  connectivityTrendData?: typeof mockConnectivityTrend;
-  alarmTrendData?: typeof mockAlarmTrend;
-  firmwareBreakdown?: typeof mockFirmwareBreakdown;
-  recentActivity?: typeof mockRecentActivity;
-  recentlyManagedDevice?: typeof mockRecentlyManagedDevice | null;
+  metricsData?: any;
+  connectivityTrendData?: any[];
+  alarmTrendData?: any[];
+  firmwareBreakdown?: any[];
+  recentActivity?: any[];
+  recentlyManagedDevice?: any | null;
   availableDevices?: {id: string}[];
   isLoading?: boolean;
   onMetricClick?: (metricType: string) => void;
@@ -82,12 +38,12 @@ export interface DeviceFleetDashboardProps {
 export default function DeviceFleetDashboard({
   userName = 'Admin User',
   userRole = 'Administrator',
-  metricsData = mockMetricsData,
-  connectivityTrendData = mockConnectivityTrend,
-  alarmTrendData = mockAlarmTrend,
-  firmwareBreakdown = mockFirmwareBreakdown,
-  recentActivity = mockRecentActivity,
-  recentlyManagedDevice = mockRecentlyManagedDevice,
+  metricsData,
+  connectivityTrendData = [],
+  alarmTrendData = [],
+  firmwareBreakdown = [],
+  recentActivity = [],
+  recentlyManagedDevice = null,
   availableDevices = [],
   isLoading = false,
   onMetricClick = () => {},
@@ -103,6 +59,16 @@ export default function DeviceFleetDashboard({
   const [connTimeRange, setConnTimeRange] = useState('24H');
   const [alarmTimeRange, setAlarmTimeRange] = useState('24H');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Compute real metrics from availableDevices if metricsData not provided
+  const computedMetrics = metricsData || {
+    totalDevices: availableDevices.length,
+    online: availableDevices.filter((d: any) => d.connectivityStatus === 'Online').length,
+    offline: availableDevices.filter((d: any) => d.connectivityStatus !== 'Online').length,
+    activeAlarms: 0,
+    commandsToday: 0,
+    firmwareUpdatesPending: availableDevices.filter((d: any) => d.firmwareUpdateAvailable).length
+  };
 
   if (isLoading) {
     return (
@@ -167,7 +133,7 @@ export default function DeviceFleetDashboard({
               <Server size={16} className="mr-2" />
               <span className="text-[11px] font-bold uppercase tracking-wider">Total Devices</span>
             </div>
-            <div className="text-2xl font-bold">{metricsData.totalDevices}</div>
+            <div className="text-2xl font-bold">{computedMetrics.totalDevices}</div>
           </button>
           
           <button 
@@ -178,7 +144,7 @@ export default function DeviceFleetDashboard({
               <Wifi size={16} className="mr-2" />
               <span className="text-[11px] font-bold uppercase tracking-wider">Devices Online</span>
             </div>
-            <div className="text-2xl font-bold text-[#1B7A6E]">{metricsData.online}</div>
+            <div className="text-2xl font-bold text-[#1B7A6E]">{computedMetrics.online}</div>
           </button>
 
           <button 
@@ -189,19 +155,19 @@ export default function DeviceFleetDashboard({
               <WifiOff size={16} className="mr-2" />
               <span className="text-[11px] font-bold uppercase tracking-wider">Devices Offline</span>
             </div>
-            <div className="text-2xl font-bold text-[#C4453D]">{metricsData.offline}</div>
+            <div className="text-2xl font-bold text-[#C4453D]">{computedMetrics.offline}</div>
           </button>
 
           <button 
             onClick={() => onMetricClick('active-alarms')}
             className="flex flex-col p-4 bg-light-card dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm text-left hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer"
           >
-            <div className={`flex items-center mb-2 ${metricsData.activeAlarms > 0 ? 'text-[#C4453D]' : 'text-light-text-secondary dark:text-[#9A9A9A]'}`}>
+            <div className={`flex items-center mb-2 ${computedMetrics.activeAlarms > 0 ? 'text-[#C4453D]' : 'text-light-text-secondary dark:text-[#9A9A9A]'}`}>
               <AlertTriangle size={16} className="mr-2" />
               <span className="text-[11px] font-bold uppercase tracking-wider">Active Alarms</span>
             </div>
-            <div className={`text-2xl font-bold ${metricsData.activeAlarms > 0 ? 'text-[#C4453D]' : 'text-light-text dark:text-[#F2F2F2]'}`}>
-              {metricsData.activeAlarms}
+            <div className={`text-2xl font-bold ${computedMetrics.activeAlarms > 0 ? 'text-[#C4453D]' : 'text-light-text dark:text-[#F2F2F2]'}`}>
+              {computedMetrics.activeAlarms}
             </div>
           </button>
 
@@ -213,7 +179,7 @@ export default function DeviceFleetDashboard({
               <Terminal size={16} className="mr-2" />
               <span className="text-[11px] font-bold uppercase tracking-wider">Commands Sent</span>
             </div>
-            <div className="text-2xl font-bold">{metricsData.commandsToday}</div>
+            <div className="text-2xl font-bold">{computedMetrics.commandsToday}</div>
           </button>
 
           <button 
@@ -224,7 +190,7 @@ export default function DeviceFleetDashboard({
               <DownloadCloud size={16} className="mr-2" />
               <span className="text-[11px] font-bold uppercase tracking-wider">Updates Pending</span>
             </div>
-            <div className="text-2xl font-bold text-[#D99B3F]">{metricsData.firmwareUpdatesPending}</div>
+            <div className="text-2xl font-bold text-[#D99B3F]">{computedMetrics.firmwareUpdatesPending}</div>
           </button>
         </div>
 

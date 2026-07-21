@@ -8,74 +8,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer 
 } from 'recharts';
 
-// --- MOCK DATA ---
-export const MOCK_STAFF_LIST = [
-  { id: 'staff-1', name: 'Alice Smith' },
-  { id: 'staff-2', name: 'Bob Jones' },
-  { id: 'staff-3', name: 'Charlie Davis' },
-];
-
-export const MOCK_ALARM_DATA = [
-  {
-    id: 'ALM-1001',
-    deviceId: 'DEV-0198',
-    severity: 'Critical',
-    alarmType: 'Signal Lost',
-    triggeredAt: new Date(Date.now() - 8 * 60000).toISOString(), // 8 mins ago
-    status: 'Active',
-    assignedTo: null,
-    triggerData: { 'Signal Strength': '0 bars', 'Duration': '45 sec', 'Last Known Location': 'Zone B' },
-    signalSnapshot: Array.from({length: 20}).map((_, i) => ({ time: i, value: Math.sin(i/2) + (Math.random() * 0.1) })),
-    history: [
-      { timestamp: new Date(Date.now() - 8 * 60000).toISOString(), action: 'Triggered', user: 'System' }
-    ]
-  },
-  {
-    id: 'ALM-1002',
-    deviceId: 'DEV-0199',
-    severity: 'Warning',
-    alarmType: 'Low Battery',
-    triggeredAt: new Date(Date.now() - 25 * 60000).toISOString(),
-    status: 'Active',
-    assignedTo: null,
-    triggerData: { 'Battery Level': '12%', 'Est. Time Remaining': '45 mins' },
-    signalSnapshot: Array.from({length: 20}).map((_, i) => ({ time: i, value: 0.8 + (Math.random() * 0.1) })),
-    history: [
-      { timestamp: new Date(Date.now() - 25 * 60000).toISOString(), action: 'Triggered', user: 'System' }
-    ]
-  },
-  {
-    id: 'ALM-1003',
-    deviceId: 'DEV-0200',
-    severity: 'Info',
-    alarmType: 'Abnormal Signal Pattern',
-    triggeredAt: new Date(Date.now() - 120 * 60000).toISOString(),
-    status: 'Acknowledged',
-    assignedTo: 'staff-1',
-    triggerData: { 'Pattern Type': 'Intermittent Noise', 'Frequency': 'High' },
-    signalSnapshot: Array.from({length: 20}).map((_, i) => ({ time: i, value: Math.random() > 0.8 ? 0.9 : 0.2 })),
-    history: [
-      { timestamp: new Date(Date.now() - 120 * 60000).toISOString(), action: 'Triggered', user: 'System' },
-      { timestamp: new Date(Date.now() - 110 * 60000).toISOString(), action: 'Acknowledged', user: 'Alice Smith' }
-    ]
-  },
-  {
-    id: 'ALM-1004',
-    deviceId: 'DEV-0198',
-    severity: 'Critical',
-    alarmType: 'Device Disconnected',
-    triggeredAt: new Date(Date.now() - 1440 * 60000).toISOString(),
-    status: 'Resolved',
-    assignedTo: 'staff-2',
-    triggerData: { 'Connection Type': 'WiFi', 'Last Ping': '24 hrs ago' },
-    signalSnapshot: Array.from({length: 20}).map((_, i) => ({ time: i, value: i < 10 ? 0.8 : 0 })),
-    history: [
-      { timestamp: new Date(Date.now() - 1440 * 60000).toISOString(), action: 'Triggered', user: 'System' },
-      { timestamp: new Date(Date.now() - 1430 * 60000).toISOString(), action: 'Acknowledged', user: 'Bob Jones' },
-      { timestamp: new Date(Date.now() - 1400 * 60000).toISOString(), action: 'Resolved', user: 'Bob Jones', note: 'Reconnected manually.' }
-    ]
-  }
-];
+// Removed mock data
 
 // --- HELPERS ---
 const formatElapsedTime = (timestamp: string) => {
@@ -300,7 +233,7 @@ export interface AlarmPageProps {
 export default function AlarmPage({
   userName = 'Admin',
   userRole = 'Administrator',
-  alarms = MOCK_ALARM_DATA,
+  alarms = [],
   escalationThresholdMinutes = 5,
   isLoading = false,
   onAcknowledge = () => {},
@@ -308,7 +241,7 @@ export default function AlarmPage({
   onReopen = () => {},
   onAssign = () => {},
   onViewDevice = () => {},
-  staffList = MOCK_STAFF_LIST
+  staffList = []
 }: AlarmPageProps) {
   
   const [activeTab, setActiveTab] = useState<'Active' | 'Acknowledged' | 'Resolved' | 'All'>('Active');
@@ -328,28 +261,42 @@ export default function AlarmPage({
     return () => clearInterval(timer);
   }, []);
 
+  const normalizedAlarms = useMemo(() => {
+    return alarms.map(a => ({
+      ...a,
+      id: a.id?.toString() || Math.random().toString(),
+      deviceId: a.device_id || a.deviceId,
+      severity: a.severity === 'warning' ? 'Warning' : a.severity === 'critical' ? 'Critical' : a.severity || 'Info',
+      alarmType: a.subtype || a.event_type || a.alarmType || 'Event',
+      triggeredAt: a.triggeredAt || new Date().toISOString(),
+      status: a.status === 'unacknowledged' ? 'Active' : (a.status || 'Active'),
+      triggerData: a.payload || a.triggerData || {},
+      history: a.history || []
+    }));
+  }, [alarms]);
+
   const filteredAlarms = useMemo(() => {
-    return alarms.filter(a => {
+    return normalizedAlarms.filter(a => {
       if (activeTab !== 'All' && a.status !== activeTab) return false;
       if (filterSeverity !== 'All' && a.severity !== filterSeverity) return false;
       if (filterType !== 'All' && a.alarmType !== filterType) return false;
-      if (searchQuery && !a.deviceId.toLowerCase().includes(searchQuery.toLowerCase()) && !a.id.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (searchQuery && !a.deviceId?.toLowerCase().includes(searchQuery.toLowerCase()) && !a.id?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (filterDateStart && new Date(a.triggeredAt).getTime() < new Date(filterDateStart).getTime()) return false;
       if (filterDateEnd && new Date(a.triggeredAt).getTime() > new Date(filterDateEnd).getTime() + 86400000) return false; // Add 1 day to include end date
       return true;
     }).sort((a, b) => new Date(b.triggeredAt).getTime() - new Date(a.triggeredAt).getTime());
-  }, [alarms, activeTab, filterSeverity, filterType, searchQuery, filterDateStart, filterDateEnd]);
+  }, [normalizedAlarms, activeTab, filterSeverity, filterType, searchQuery, filterDateStart, filterDateEnd]);
 
   const counts = useMemo(() => {
     return {
-      Active: alarms.filter(a => a.status === 'Active').length,
-      Acknowledged: alarms.filter(a => a.status === 'Acknowledged').length,
-      Resolved: alarms.filter(a => a.status === 'Resolved').length,
-      All: alarms.length
+      Active: normalizedAlarms.filter(a => a.status === 'Active').length,
+      Acknowledged: normalizedAlarms.filter(a => a.status === 'Acknowledged').length,
+      Resolved: normalizedAlarms.filter(a => a.status === 'Resolved').length,
+      All: normalizedAlarms.length
     };
-  }, [alarms]);
+  }, [normalizedAlarms]);
 
-  const selectedAlarm = alarms.find(a => a.id === selectedAlarmId);
+  const selectedAlarm = normalizedAlarms.find(a => a.id === selectedAlarmId);
 
   return (
     <div className="h-full flex flex-col bg-light-bg dark:bg-[#000000] text-light-text dark:text-dark-text relative overflow-hidden">

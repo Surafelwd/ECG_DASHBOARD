@@ -3,7 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/db/index.js';
 import { devices, readings, events } from './src/db/schema.js';
-import { eq, or } from 'drizzle-orm';
+import { eq, or, desc } from 'drizzle-orm';
 import crypto from 'crypto';
 import 'dotenv/config';
 
@@ -128,6 +128,52 @@ async function startServer() {
     } catch (err) {
       console.error('Unexpected error in ingest function:', err);
       return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // GET endpoints for the dashboard
+  app.get('/api/devices', async (req, res) => {
+    try {
+      const allDevices = await db.select().from(devices);
+      res.json(allDevices);
+    } catch (err) {
+      console.error('Error fetching devices:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/devices/:id', async (req, res) => {
+    try {
+      const [device] = await db.select().from(devices).where(eq(devices.id, req.params.id)).limit(1);
+      if (!device) return res.status(404).json({ error: 'Not found' });
+      res.json(device);
+    } catch (err) {
+      console.error('Error fetching device:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/alarms', async (req, res) => {
+    try {
+      const allAlarms = await db.select().from(events).orderBy(desc(events.id)).limit(100);
+      res.json(allAlarms);
+    } catch (err) {
+      console.error('Error fetching alarms:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/telemetry/:deviceId', async (req, res) => {
+    try {
+      const telemetry = await db.select()
+        .from(readings)
+        .where(eq(readings.device_id, req.params.deviceId))
+        .orderBy(desc(readings.time))
+        .limit(100);
+      res.json(telemetry.reverse());
+    } catch (err) {
+      console.error('Error fetching telemetry:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
     }
   });
 
