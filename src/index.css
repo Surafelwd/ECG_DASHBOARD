@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-brand-primary: #1B7A6E;
+  --color-brand-primary-hover: #145F56;
+  --color-brand-error: #C4453D;
+  --color-brand-waveform: #3ADB8F;
+  
+  --color-dark-bg: #000000;
+  --color-dark-card: #121212;
+  --color-dark-border: #262626;
+  --color-dark-text: #F2F2F2;
+  --color-dark-text-secondary: #9A9A9A;
+
+  --color-light-bg: #FFFFFF;
+  --color-light-card: #F7F7F7;
+  --color-light-text: #1A1A1A;
+  --color-light-text-secondary: #6B6B6B;
+}
+
+@layer base {
+  body {
+    @apply bg-light-bg text-light-text antialiased transition-colors duration-300;
+  }
+  .dark body {
+    @apply bg-dark-bg text-dark-text;
+  }
+}

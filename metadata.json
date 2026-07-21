@@ -1,0 +1,6 @@
+{
+  "name": "Device Monitoring Login",
+  "description": "Login portal for a device monitoring platform featuring dark mode, lockout states, and a waveform signature.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
