@@ -31,8 +31,6 @@ export function useTelemetryStream(deviceId: string) {
   useEffect(() => {
     if (!deviceId) return;
 
-    let intervalId: any;
-
     const fetchData = async () => {
       try {
         setConnectionStatus(prev => prev === 'DISCONNECTED' ? 'RECONNECTING' : prev);
@@ -65,9 +63,6 @@ export function useTelemetryStream(deviceId: string) {
     };
 
     fetchData();
-    intervalId = setInterval(fetchData, 2000);
-
-    return () => clearInterval(intervalId);
   }, [deviceId]);
 
   return { data, logs, connectionStatus, packetCount, clearBuffers };

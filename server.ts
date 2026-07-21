@@ -191,7 +191,7 @@ async function startServer() {
         .from(readings)
         .where(eq(readings.device_id, req.params.deviceId))
         .orderBy(desc(readings.time))
-        .limit(100);
+        .limit(5000);
       res.json(telemetry.reverse());
     } catch (err) {
       console.error('Error fetching telemetry:', err);
