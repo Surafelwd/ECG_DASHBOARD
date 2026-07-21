@@ -63,41 +63,43 @@ const SignalIndicator = ({ strength }: { strength: number }) => {
   return <Icon className={color} size={16} />;
 };
 
+const defaultGetDeviceDetail = async (deviceId: string) => {
+  try {
+    const telRes = await fetch(`/api/telemetry/${deviceId}`);
+    const readings = await telRes.json();
+    
+    return {
+      signalAnalysis: {
+        averageSignalRate: '100%',
+        totalReadings: readings?.length?.toString() || '0',
+        dataCompleteness: '100%',
+        motionIncidents: 0,
+        trendData: []
+      },
+      motionArtifactFlags: [],
+      readings: (Array.isArray(readings) ? readings : []).map((r: any) => ({
+        id: r.id,
+        timestamp: new Date(r.time).toLocaleString(),
+        accelX: r.accel_x,
+        accelY: r.accel_y,
+        accelZ: r.accel_z,
+        ecgCh1: r.ecg_ch1,
+        ecgCh2: r.ecg_ch2,
+        sessionId: r.session_id
+      })),
+      readingSessions: []
+    };
+  } catch (e) {
+    return null;
+  }
+};
+
 // --- MAIN PAGE ---
 export default function DevicesPage({
   userRole = 'administrator',
   devices = [],
   isLoading = false,
-  getDeviceDetail = async (deviceId: string) => {
-    try {
-      const telRes = await fetch(`/api/telemetry/${deviceId}`);
-      const readings = await telRes.json();
-      
-      return {
-        signalAnalysis: {
-          averageSignalRate: '100%',
-          totalReadings: readings?.length?.toString() || '0',
-          dataCompleteness: '100%',
-          motionIncidents: 0,
-          trendData: []
-        },
-        motionArtifactFlags: [],
-        readings: (readings || []).map((r: any) => ({
-          id: r.id,
-          timestamp: new Date(r.time).toLocaleString(),
-          accelX: r.accel_x,
-          accelY: r.accel_y,
-          accelZ: r.accel_z,
-          ecgCh1: r.ecg_ch1,
-          ecgCh2: r.ecg_ch2,
-          sessionId: r.session_id
-        })),
-        readingSessions: []
-      };
-    } catch (e) {
-      return null;
-    }
-  },
+  getDeviceDetail = defaultGetDeviceDetail,
   onManageCommands = () => {},
   onExportReadings = () => {},
   onClearFilters = () => {},
@@ -297,6 +299,21 @@ export default function DevicesPage({
 
   // --- RENDER DETAIL VIEW ---
   const device = devices.find(d => d.id === selectedDeviceId) || devices[0];
+  
+  if (!device) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-6 bg-light-bg dark:bg-[#000000] text-light-text-secondary dark:text-[#9A9A9A]">
+        <div className="w-8 h-8 border-2 border-[#1B7A6E]/30 border-t-[#1B7A6E] rounded-full animate-spin mb-4"></div>
+        <p className="text-sm">Loading device details...</p>
+        <button 
+          onClick={() => setSelectedDeviceId(null)}
+          className="mt-4 text-xs font-bold uppercase tracking-widest text-[#1B7A6E] hover:underline"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
   
   return (
     <div className="h-full flex flex-col bg-light-bg dark:bg-[#000000] text-light-text dark:text-dark-text overflow-hidden">
