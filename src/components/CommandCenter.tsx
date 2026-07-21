@@ -111,21 +111,21 @@ export default function CommandCenter({
   // State
   const [activeAccordion, setActiveAccordion] = useState<string | null>('firmware');
   const [isEditingOwner, setIsEditingOwner] = useState(false);
-  const [ownerNameInput, setOwnerNameInput] = useState(device.ownerName);
-  const [scheduleInput, setScheduleInput] = useState(device.currentSchedule);
-  const [samplingRate, setSamplingRate] = useState(device.samplingRate);
-  const [lossSensitivity, setLossSensitivity] = useState(device.onDeviceThresholds.lossSensitivity);
+  const [ownerNameInput, setOwnerNameInput] = useState(device.ownerName || '');
+  const [scheduleInput, setScheduleInput] = useState(device.currentSchedule || 'Every 4 hours');
+  const [samplingRate, setSamplingRate] = useState(device.samplingRate || 250);
+  const [lossSensitivity, setLossSensitivity] = useState(device.onDeviceThresholds?.lossSensitivity || 5);
   
   const [isDeviceMenuOpen, setIsDeviceMenuOpen] = useState(false);
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
 
   React.useEffect(() => {
-    setOwnerNameInput(device.ownerName);
-    setScheduleInput(device.currentSchedule);
-    setSamplingRate(device.samplingRate);
-    setLossSensitivity(device.onDeviceThresholds.lossSensitivity);
+    setOwnerNameInput(device.ownerName || '');
+    setScheduleInput(device.currentSchedule || 'Every 4 hours');
+    setSamplingRate(device.samplingRate || 250);
+    setLossSensitivity(device.onDeviceThresholds?.lossSensitivity || 5);
     setIsEditingOwner(false);
-  }, [device.id]);
+  }, [device.id, device]);
   
   // Dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
