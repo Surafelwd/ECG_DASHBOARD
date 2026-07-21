@@ -30,5 +30,6 @@ export const events = pgTable("events", {
   subtype: text("subtype").notNull(),
   severity: text("severity"),
   status: text("status"),
-  payload: jsonb("payload")
+  payload: jsonb("payload"),
+  created_at: timestamp("created_at").defaultNow()
 });

@@ -407,8 +407,8 @@ export default function DeviceFleetDashboard({
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <div className="text-sm font-bold uppercase tracking-widest group-hover:text-[#1B7A6E] transition-colors">Alarms</div>
-                  {metricsData.activeAlarms > 0 && (
-                    <span className="bg-[#C4453D] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-sm">{metricsData.activeAlarms}</span>
+                  {computedMetrics.activeAlarms > 0 && (
+                    <span className="bg-[#C4453D] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-sm">{computedMetrics.activeAlarms}</span>
                   )}
                 </div>
                 <div className="text-xs text-light-text-secondary dark:text-[#9A9A9A]">Review active alarms</div>

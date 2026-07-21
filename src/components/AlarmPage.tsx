@@ -268,7 +268,7 @@ export default function AlarmPage({
       deviceId: a.device_id || a.deviceId,
       severity: a.severity === 'warning' ? 'Warning' : a.severity === 'critical' ? 'Critical' : a.severity || 'Info',
       alarmType: a.subtype || a.event_type || a.alarmType || 'Event',
-      triggeredAt: a.triggeredAt || new Date().toISOString(),
+      triggeredAt: a.created_at || a.triggeredAt || new Date().toISOString(),
       status: a.status === 'unacknowledged' ? 'Active' : (a.status || 'Active'),
       triggerData: a.payload || a.triggerData || {},
       history: a.history || []
