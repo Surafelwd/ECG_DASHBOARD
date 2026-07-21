@@ -135,7 +135,19 @@ async function startServer() {
   app.get('/api/devices', async (req, res) => {
     try {
       const allDevices = await db.select().from(devices);
-      res.json(allDevices);
+      // Map snake_case DB fields to camelCase for frontend
+      const mapped = allDevices.map(d => ({
+        id: d.id,
+        serialNumber: d.serial_number || d.id,
+        ownerName: d.owner_name || '',
+        connectivityStatus: d.connectivity_status === 'online' ? 'Online' : 'Offline',
+        batteryLevel: d.battery_level ?? 100,
+        signalStrength: d.connectivity_status === 'online' ? 3 : 0,
+        firmwareVersion: 'v1.0.0',
+        firmwareUpdateAvailable: false,
+        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString() : 'Never',
+      }));
+      res.json(mapped);
     } catch (err) {
       console.error('Error fetching devices:', err);
       res.status(500).json({ error: 'Internal Server Error' });
@@ -144,9 +156,19 @@ async function startServer() {
 
   app.get('/api/devices/:id', async (req, res) => {
     try {
-      const [device] = await db.select().from(devices).where(eq(devices.id, req.params.id)).limit(1);
-      if (!device) return res.status(404).json({ error: 'Not found' });
-      res.json(device);
+      const [d] = await db.select().from(devices).where(eq(devices.id, req.params.id)).limit(1);
+      if (!d) return res.status(404).json({ error: 'Not found' });
+      res.json({
+        id: d.id,
+        serialNumber: d.serial_number || d.id,
+        ownerName: d.owner_name || '',
+        connectivityStatus: d.connectivity_status === 'online' ? 'Online' : 'Offline',
+        batteryLevel: d.battery_level ?? 100,
+        signalStrength: d.connectivity_status === 'online' ? 3 : 0,
+        firmwareVersion: 'v1.0.0',
+        firmwareUpdateAvailable: false,
+        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString() : 'Never',
+      });
     } catch (err) {
       console.error('Error fetching device:', err);
       res.status(500).json({ error: 'Internal Server Error' });

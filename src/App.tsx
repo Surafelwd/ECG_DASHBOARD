@@ -224,6 +224,7 @@ export default function App() {
               )}
               {currentView === 'devices' && (
                 <DevicesPage 
+                  devices={availableDevices}
                   initialSelectedDeviceId={targetDeviceId} 
                   onManageCommands={(id) => navigateToCommandCenter(id)}
                   onViewTelemetry={(id) => navigateToTelemetry(id)}
