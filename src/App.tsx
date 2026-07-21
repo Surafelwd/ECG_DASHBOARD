@@ -230,31 +230,33 @@ export default function App() {
                   onViewTelemetry={(id) => navigateToTelemetry(id)}
                 />
               )}
-              {currentView === 'command_center' && (
-                <CommandCenter 
-                  device={{
-                    id: targetDeviceId || 'DEV-0198',
-                    serialNumber: 'SN-9345-8201',
-                    ownerName: 'Alice Smith',
-                    connectivityStatus: 'Online',
-                    batteryLevel: 85,
-                    signalStrength: 4,
-                    lastSync: '2 min ago',
-                    firmwareVersion: 'v4.1.9',
-                    firmwareUpdateAvailable: true,
-                    currentSchedule: 'Every 4 hours',
-                    samplingRate: 250,
-                    onDeviceThresholds: {
-                      lossSensitivity: 5
-                    }
-                  }}
-                  availableDevices={availableDevices}
-                  onChangeDevice={(id) => setTargetDeviceId(id)}
-                  onBack={() => navigateToDevices(targetDeviceId || undefined)}
-                  onViewDataAnalysis={(id) => navigateToDevices(id)}
-                  onViewTelemetry={(id) => navigateToTelemetry(id)}
-                />
-              )}
+              {currentView === 'command_center' && (() => {
+                const device = availableDevices.find(d => d.id === targetDeviceId) || availableDevices[0] || {
+                  id: targetDeviceId || 'DEV-0198',
+                  serialNumber: 'SN-9345-8201',
+                  ownerName: 'Alice Smith',
+                  connectivityStatus: 'Online',
+                  batteryLevel: 85,
+                  signalStrength: 4,
+                  lastSync: '2 min ago',
+                  firmwareVersion: 'v4.1.9',
+                  firmwareUpdateAvailable: true,
+                  currentSchedule: 'Every 4 hours',
+                  samplingRate: 250,
+                  onDeviceThresholds: { lossSensitivity: 5 }
+                };
+
+                return (
+                  <CommandCenter 
+                    device={device}
+                    availableDevices={availableDevices}
+                    onChangeDevice={(id) => setTargetDeviceId(id)}
+                    onBack={() => navigateToDevices(targetDeviceId || undefined)}
+                    onViewDataAnalysis={(id) => navigateToDevices(id)}
+                    onViewTelemetry={(id) => navigateToTelemetry(id)}
+                  />
+                );
+              })()}
               {currentView === 'telemetry' && (
                 <div className="h-full w-full p-6">
                   <div className="flex items-center mb-4">

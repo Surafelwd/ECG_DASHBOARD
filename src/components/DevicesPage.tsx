@@ -101,7 +101,21 @@ export default function DevicesPage({
   isLoading = false,
   getDeviceDetail = defaultGetDeviceDetail,
   onManageCommands = () => {},
-  onExportReadings = () => {},
+  onExportReadings = (deviceId: string, detailData: any) => {
+    if (!detailData || !detailData.readings) return;
+    const header = ['Timestamp', 'Session ID', 'ECG Ch1 (mV)', 'ECG Ch2 (mV)', 'Accel X (mg)', 'Accel Y (mg)', 'Accel Z (mg)'];
+    const rows = detailData.readings.map((r: any) => [
+      `"${r.timestamp}"`, `"${r.sessionId}"`, r.ecgCh1, r.ecgCh2, r.accelX, r.accelY, r.accelZ
+    ]);
+    const csvContent = [header.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `telemetry-${deviceId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   onClearFilters = () => {},
   initialSelectedDeviceId = null,
   onViewTelemetry
@@ -113,9 +127,15 @@ export default function DevicesPage({
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [firmwareFilter, setFirmwareFilter] = useState('All Firmware');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
 
   useEffect(() => {
     setSelectedDeviceId(initialSelectedDeviceId);
+    setCurrentPage(1);
   }, [initialSelectedDeviceId]);
   
   useEffect(() => {
@@ -133,6 +153,7 @@ export default function DevicesPage({
   const handleClearFilters = () => {
     setSearchQuery('');
     setStatusFilter('All');
+    setFirmwareFilter('All Firmware');
     onClearFilters();
   };
 
@@ -143,6 +164,9 @@ export default function DevicesPage({
       if (statusFilter === 'Low Battery' && d.batteryLevel > 20) return false;
       if (statusFilter === 'Needs Update' && !d.firmwareUpdateAvailable) return false;
     }
+    if (firmwareFilter !== 'All Firmware') {
+      if (d.firmwareVersion !== firmwareFilter) return false;
+    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return d.id.toLowerCase().includes(q) || 
@@ -151,6 +175,8 @@ export default function DevicesPage({
     }
     return true;
   });
+
+  const uniqueFirmwares = Array.from(new Set(devices.map(d => d.firmwareVersion))).filter(Boolean);
 
   // --- RENDER LIST VIEW ---
   if (!selectedDeviceId) {
@@ -194,13 +220,16 @@ export default function DevicesPage({
                 <option value="Needs Update">Needs Update</option>
               </select>
               
-              <select className="px-2 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-dark-border rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer hidden sm:block min-w-[120px]">
-                <option>All Firmware</option>
-                <option>v4.2.0</option>
-                <option>v4.1.9</option>
+              <select 
+                value={firmwareFilter}
+                onChange={e => setFirmwareFilter(e.target.value)}
+                className="px-2 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-dark-border rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer hidden sm:block min-w-[120px]"
+              >
+                <option value="All Firmware">All Firmware</option>
+                {uniqueFirmwares.map(fw => <option key={fw as string} value={fw as string}>{fw as string}</option>)}
               </select>
 
-              {(searchQuery || statusFilter !== 'All') && (
+              {(searchQuery || statusFilter !== 'All' || firmwareFilter !== 'All Firmware') && (
                 <button 
                   onClick={handleClearFilters}
                   className="px-3 py-1.5 text-[10px] font-bold text-light-text-secondary dark:text-dark-text-secondary uppercase tracking-widest hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[#1B7A6E] whitespace-nowrap cursor-pointer flex items-center"
@@ -490,9 +519,11 @@ export default function DevicesPage({
                     Raw ECG Data Browser
                   </h2>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-light-text-secondary dark:text-[#9A9A9A] hidden sm:inline-block">Showing 1-20 of 14,520</span>
+                    <span className="text-xs text-light-text-secondary dark:text-[#9A9A9A] hidden sm:inline-block">
+                      Showing {detailData.readings.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, detailData.readings.length)} of {detailData.readings.length}
+                    </span>
                     <button 
-                      onClick={() => onExportReadings(device.id, {})}
+                      onClick={() => onExportReadings(device.id, detailData)}
                       className="flex items-center px-3 py-1.5 bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] text-xs font-bold uppercase tracking-widest rounded-sm transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
                     >
                       <Download size={14} className="mr-1.5" /> Export CSV
@@ -512,7 +543,7 @@ export default function DevicesPage({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-[#1a1a1a] font-mono">
-                      {detailData.readings.map(reading => (
+                      {detailData.readings.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((reading: any) => (
                         <tr key={reading.id} className="hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors">
                           <td className="px-4 py-2.5 text-light-text dark:text-[#F2F2F2]">{reading.timestamp}</td>
                           <td className="px-4 py-2.5 text-light-text-secondary dark:text-[#9A9A9A]">{reading.sessionId}</td>
@@ -528,11 +559,19 @@ export default function DevicesPage({
                 </div>
                 
                 <div className="p-3 border-t border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-between sm:justify-end gap-2">
-                  <button className="p-1.5 rounded-sm hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text-secondary dark:text-[#9A9A9A] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] disabled:opacity-50" disabled>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-sm hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text-secondary dark:text-[#9A9A9A] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  >
                     <ChevronLeft size={16} />
                   </button>
-                  <div className="text-xs font-bold px-2">Page 1</div>
-                  <button className="p-1.5 rounded-sm hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text-secondary dark:text-[#9A9A9A] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer">
+                  <div className="text-xs font-bold px-2">Page {currentPage} of {Math.max(1, Math.ceil(detailData.readings.length / itemsPerPage))}</div>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(detailData.readings.length / itemsPerPage), p + 1))}
+                    disabled={currentPage >= Math.ceil(detailData.readings.length / itemsPerPage)}
+                    className="p-1.5 rounded-sm hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text-secondary dark:text-[#9A9A9A] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     <ChevronRight size={16} />
                   </button>
                 </div>

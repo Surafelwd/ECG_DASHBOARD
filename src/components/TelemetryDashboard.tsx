@@ -3,9 +3,12 @@ import { Activity, RotateCcw } from 'lucide-react';
 import {
   LineChart,
   Line,
+  XAxis,
   YAxis,
   CartesianGrid,
   ResponsiveContainer,
+  Brush,
+  Tooltip as RechartsTooltip,
 } from 'recharts';
 import { useTelemetryStream } from '../hooks/useTelemetryStream';
 export type { TelemetryPoint, LogEntry } from '../hooks/useTelemetryStream';
@@ -170,12 +173,18 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
             </div>
             <div className="flex-1 min-h-[160px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data}>
+                <LineChart data={data} syncId="telemetryData">
                   <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.2} />
+                  <XAxis dataKey="timestamp" hide />
                   <YAxis domain={[-1500, 1500]} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={40} />
-                  <Line type="monotone" dataKey="accelX" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="accelY" stroke="#D99B3F" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="accelZ" stroke="#C4453D" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', borderRadius: '2px', fontSize: '12px', color: '#F2F2F2' }}
+                    itemStyle={{ fontWeight: 'bold' }}
+                  />
+                  <Line type="monotone" dataKey="accelX" name="X" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="accelY" name="Y" stroke="#D99B3F" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="accelZ" name="Z" stroke="#C4453D" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Brush dataKey="timestamp" height={20} stroke="#1B7A6E" fill="#000000" tickFormatter={() => ''} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -223,10 +232,15 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
               </div>
               <div className="flex-1 min-h-[140px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data}>
+                  <LineChart data={data} syncId="telemetryData">
                     <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.2} />
+                    <XAxis dataKey="timestamp" hide />
                     <YAxis domain={[-2, 2]} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={30} />
-                    <Line type="monotone" dataKey={ch.dataKey} stroke={ch.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    <RechartsTooltip 
+                      contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', borderRadius: '2px', fontSize: '12px', color: '#F2F2F2' }}
+                      itemStyle={{ fontWeight: 'bold' }}
+                    />
+                    <Line type="monotone" dataKey={ch.dataKey} name={ch.tag} stroke={ch.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
