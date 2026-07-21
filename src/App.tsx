@@ -259,21 +259,7 @@ export default function App() {
               })()}
               {currentView === 'telemetry' && (
                 <div className="h-full w-full p-6">
-                  <div className="flex items-center mb-4">
-                    <button 
-                      onClick={() => navigateToDevices(targetDeviceId || undefined)}
-                      className="text-xs font-bold uppercase tracking-widest text-[#1B7A6E] hover:underline mr-4"
-                    >
-                      &larr; Back to Device
-                    </button>
-                    <button 
-                      onClick={() => navigateToCommandCenter(targetDeviceId || 'DEV-0198')}
-                      className="text-xs font-bold uppercase tracking-widest text-[#1B7A6E] hover:underline"
-                    >
-                      Command Center &rarr;
-                    </button>
-                  </div>
-                  <div className="h-[calc(100%-2.5rem)] w-full">
+                  <div className="h-full w-full">
                     <TelemetryDashboard 
                       deviceId={targetDeviceId || 'DEV-0198'} 
                       context="device-detail" 
