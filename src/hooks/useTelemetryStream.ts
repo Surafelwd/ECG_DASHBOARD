@@ -10,6 +10,14 @@ export interface TelemetryPoint {
   magnitude: number;
 }
 
+export interface SessionMeta {
+  sessionId: string;
+  startTime: string;
+  endTime: string;
+  sampleCount: number;
+  durationMs: number;
+}
+
 export interface LogEntry {
   id: string;
   timestamp: string;
@@ -18,29 +26,42 @@ export interface LogEntry {
 
 export function useTelemetryStream(deviceId: string) {
   const [data, setData] = useState<TelemetryPoint[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'LIVE' | 'RECONNECTING' | 'DISCONNECTED'>('RECONNECTING');
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'LOADED' | 'LOADING' | 'ERROR'>('LOADING');
   const [packetCount, setPacketCount] = useState(0);
 
-  const clearBuffers = useCallback(() => {
-    setData([]);
-    setLogs([]);
-    setPacketCount(0);
-  }, []);
+  // Fetch available sessions for this device
+  useEffect(() => {
+    if (!deviceId) return;
+    fetch(`/api/sessions/${deviceId}`)
+      .then(r => r.ok ? r.json() : [])
+      .then((s: SessionMeta[]) => {
+        setSessions(s);
+        // Auto-select the most recent session
+        if (s.length > 0 && !selectedSessionId) {
+          setSelectedSessionId(s[0].sessionId);
+        }
+      })
+      .catch(() => setSessions([]));
+  }, [deviceId]);
 
+  // Fetch telemetry data when session changes
   useEffect(() => {
     if (!deviceId) return;
 
-    const fetchData = async () => {
-      try {
-        setConnectionStatus(prev => prev === 'DISCONNECTED' ? 'RECONNECTING' : prev);
-        const res = await fetch(`/api/telemetry/${deviceId}`);
-        if (!res.ok) throw new Error('Network response was not ok');
-        const telemetry = await res.json();
+    const url = selectedSessionId
+      ? `/api/telemetry/${deviceId}?sessionId=${encodeURIComponent(selectedSessionId)}`
+      : `/api/telemetry/${deviceId}`;
 
+    setConnectionStatus('LOADING');
+    setData([]);
+
+    fetch(url)
+      .then(r => { if (!r.ok) throw new Error('Network error'); return r.json(); })
+      .then((telemetry: any[]) => {
         const mappedData = telemetry.map((t: any) => ({
           time: new Date(t.time).getTime(),
-          timestamp: new Date(t.time).toLocaleTimeString(),
           accelX: t.accel_x || 0,
           accelY: t.accel_y || 0,
           accelZ: t.accel_z || 0,
@@ -50,20 +71,29 @@ export function useTelemetryStream(deviceId: string) {
             Math.pow(t.accel_x || 0, 2) +
             Math.pow(t.accel_y || 0, 2) +
             Math.pow(t.accel_z || 0, 2)
-          ) || 0
-        })).reverse(); // Reverse to have chronological order for graphs
-
+          ),
+        }));
         setData(mappedData);
-        setPacketCount(telemetry.length);
-        setConnectionStatus('LIVE');
-      } catch (err) {
-        console.error('Error fetching telemetry:', err);
-        setConnectionStatus('DISCONNECTED');
-      }
-    };
+        setPacketCount(mappedData.length);
+        setConnectionStatus('LOADED');
+      })
+      .catch(() => setConnectionStatus('ERROR'));
+  }, [deviceId, selectedSessionId]);
 
-    fetchData();
-  }, [deviceId]);
+  const clearBuffers = useCallback(() => {
+    setData([]);
+    setPacketCount(0);
+  }, []);
 
-  return { data, logs, connectionStatus, packetCount, clearBuffers };
+  return {
+    data,
+    sessions,
+    selectedSessionId,
+    setSelectedSessionId,
+    connectionStatus,
+    packetCount,
+    clearBuffers,
+    // legacy compatibility
+    logs: [] as LogEntry[],
+  };
 }

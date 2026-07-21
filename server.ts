@@ -3,7 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/db/index.js';
 import { devices, readings, events } from './src/db/schema.js';
-import { eq, or, desc } from 'drizzle-orm';
+import { eq, or, desc, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import 'dotenv/config';
 
@@ -185,14 +185,67 @@ async function startServer() {
     }
   });
 
-  app.get('/api/telemetry/:deviceId', async (req, res) => {
+  // GET /api/sessions/:deviceId  — list all sessions for a device
+  app.get('/api/sessions/:deviceId', async (req, res) => {
     try {
-      const telemetry = await db.select()
+      // Group readings by session_id, return metadata for each
+      const rows = await db
+        .select({
+          sessionId: readings.session_id,
+          startTime: sql<Date>`min(${readings.time})`.as('start_time'),
+          endTime:   sql<Date>`max(${readings.time})`.as('end_time'),
+          sampleCount: sql<number>`count(*)`.as('sample_count'),
+        })
         .from(readings)
         .where(eq(readings.device_id, req.params.deviceId))
-        .orderBy(desc(readings.time))
-        .limit(5000);
-      res.json(telemetry.reverse());
+        .groupBy(readings.session_id)
+        .orderBy(desc(sql`max(${readings.time})`));
+
+      const sessions = rows.map(r => ({
+        sessionId:   r.sessionId,
+        startTime:   r.startTime,
+        endTime:     r.endTime,
+        sampleCount: Number(r.sampleCount),
+        durationMs:  r.endTime && r.startTime
+          ? new Date(r.endTime).getTime() - new Date(r.startTime).getTime()
+          : 0,
+      }));
+
+      res.json(sessions);
+    } catch (err) {
+      console.error('Error fetching sessions:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // GET /api/telemetry/:deviceId?sessionId=xxx  — adaptive downsampling
+  app.get('/api/telemetry/:deviceId', async (req, res) => {
+    try {
+      const TARGET_POINTS = 5000;
+      const { sessionId } = req.query;
+
+      // 1. Fetch the raw rows for this session (or all rows if no session specified)
+      const query = db.select()
+        .from(readings)
+        .where(
+          sessionId
+            ? sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.session_id} = ${sessionId}`
+            : eq(readings.device_id, req.params.deviceId)
+        )
+        .orderBy(readings.time);
+
+      const allRows = await query;
+      const total = allRows.length;
+
+      if (total === 0) return res.json([]);
+
+      // 2. Adaptive downsampling: keep every Nth point so we never return > TARGET_POINTS
+      const factor = Math.max(1, Math.floor(total / TARGET_POINTS));
+      const downsampled = factor === 1
+        ? allRows
+        : allRows.filter((_, i) => i % factor === 0);
+
+      res.json(downsampled);
     } catch (err) {
       console.error('Error fetching telemetry:', err);
       res.status(500).json({ error: 'Internal Server Error' });
