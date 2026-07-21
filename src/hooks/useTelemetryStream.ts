@@ -41,18 +41,19 @@ export function useTelemetryStream(deviceId: string) {
         const telemetry = await res.json();
 
         const mappedData = telemetry.map((t: any) => ({
-          time: new Date(t.time).getTime(),
-          accelX: t.accel_x || 0,
-          accelY: t.accel_y || 0,
-          accelZ: t.accel_z || 0,
-          ecg1: t.ecg_ch1 || 0,
-          ecg2: t.ecg_ch2 || 0,
+          time: new Date(t.timestamp).getTime(),
+          timestamp: new Date(t.timestamp).toLocaleTimeString(),
+          accelX: t.accelX || 0,
+          accelY: t.accelY || 0,
+          accelZ: t.accelZ || 0,
+          ecg1: t.ecgCh1 || 0,
+          ecg2: t.ecgCh2 || 0,
           magnitude: Math.sqrt(
-            Math.pow(t.accel_x || 0, 2) +
-            Math.pow(t.accel_y || 0, 2) +
-            Math.pow(t.accel_z || 0, 2)
+            Math.pow(t.accelX || 0, 2) +
+            Math.pow(t.accelY || 0, 2) +
+            Math.pow(t.accelZ || 0, 2)
           ) || 0
-        }));
+        })).reverse(); // Reverse to have chronological order for graphs
 
         setData(mappedData);
         setPacketCount(telemetry.length);
