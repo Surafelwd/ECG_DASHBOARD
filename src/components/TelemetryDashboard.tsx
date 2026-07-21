@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { Activity, RotateCcw } from 'lucide-react';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { Activity, RotateCcw, ZoomIn } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -9,390 +9,326 @@ import {
   ResponsiveContainer,
   Brush,
   Tooltip as RechartsTooltip,
-  ReferenceArea
+  Area,
+  AreaChart,
 } from 'recharts';
 import { useTelemetryStream } from '../hooks/useTelemetryStream';
 export type { TelemetryPoint, LogEntry } from '../hooks/useTelemetryStream';
 
-// --- COMPONENTS ---
-
-const GaugeSVG = ({ value, max, label, unit }: { value: number, max: number, label: string, unit: string }) => {
-  const radius = 40;
-  const stroke = 8;
-  const normalizedValue = Math.min(Math.max(value, 0), max);
-  const percentage = normalizedValue / max;
-  
-  // Arc angles (270 degrees total, starting bottom left)
-  const startAngle = 135;
-  const endAngle = 405;
-  const currentAngle = startAngle + (percentage * 270);
-
-  const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
-    const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
-    return {
-      x: centerX + (radius * Math.cos(angleInRadians)),
-      y: centerY + (radius * Math.sin(angleInRadians))
-    };
-  };
-
-  const describeArc = (x: number, y: number, radius: number, startAngle: number, endAngle: number) => {
-    const start = polarToCartesian(x, y, radius, endAngle);
-    const end = polarToCartesian(x, y, radius, startAngle);
-    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-    return [
-      "M", start.x, start.y, 
-      "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y
-    ].join(" ");
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center relative w-full h-32">
-      <svg width="100" height="100" viewBox="0 0 100 100" className="absolute">
-        {/* Background Arc */}
-        <path 
-          d={describeArc(50, 50, radius, startAngle, endAngle)} 
-          fill="none" 
-          stroke="currentColor" 
-          strokeWidth={stroke} 
-          className="text-gray-200 dark:text-[#262626]" 
-          strokeLinecap="round" 
-        />
-        {/* Value Arc */}
-        <path 
-          d={describeArc(50, 50, radius, startAngle, currentAngle)} 
-          fill="none" 
-          stroke="currentColor" 
-          strokeWidth={stroke} 
-          className="text-[#1B7A6E]" 
-          strokeLinecap="round" 
-        />
-      </svg>
-      <div className="flex flex-col items-center justify-center z-10 pt-2">
-        <span className="text-xl font-bold font-mono tracking-tight text-light-text dark:text-dark-text leading-none">{Math.round(value)}</span>
-        <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-1">{unit}</span>
-      </div>
-    </div>
-  );
-};
-
+// --- TYPES ---
 export interface TelemetryDashboardProps {
   deviceId: string;
   ownerName?: string;
   context: 'device-detail' | 'command-center';
 }
 
-export default function TelemetryDashboard({ deviceId, ownerName, context }: TelemetryDashboardProps) {
-  const { data, logs, connectionStatus, packetCount, clearBuffers } = useTelemetryStream(deviceId);
-  
-  const latestData = data[data.length - 1] || { accelX: 0, accelY: 0, accelZ: 0, ecg1: 0, ecg2: 0, magnitude: 0 };
-  const logContainerRef = useRef<HTMLDivElement>(null);
+// --- ChartHero Component ---
+// Each chart gets its own independent Hero Section with its own Brush and scroll-zoom.
+interface ChartHeroProps {
+  title: string;
+  tag: string;
+  accentColor: string;
+  data: any[];
+  children: (visibleData: any[], yDomain: [number, number]) => React.ReactNode;
+  yKeys: string[];         // which data keys to consider for vertical auto-scale
+  defaultYDomain: [number, number];
+  legend?: React.ReactNode;
+}
 
-  // Zoom State
-  const [zoomIndex, setZoomIndex] = React.useState<[number, number] | null>(null);
-  const [refAreaLeft, setRefAreaLeft] = React.useState<number | null>(null);
-  const [refAreaRight, setRefAreaRight] = React.useState<number | null>(null);
+function ChartHero({ title, tag, accentColor, data, children, yKeys, defaultYDomain, legend }: ChartHeroProps) {
+  const [brushRange, setBrushRange] = React.useState<[number, number]>([0, Math.max(0, data.length - 1)]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const [yDomains, setYDomains] = React.useState({
-    accel: [-1500, 1500] as [number, number],
-    ecg1: [-2, 2] as [number, number],
-    ecg2: [-2, 2] as [number, number]
-  });
+  // Keep brush in sync when data changes
+  useEffect(() => {
+    setBrushRange([0, Math.max(0, data.length - 1)]);
+  }, [data.length]);
+
+  const visibleData = data.length > 0 ? data.slice(brushRange[0], brushRange[1] + 1) : [];
+
+  // Auto-scale Y domain based on visible data
+  const yDomain: [number, number] = React.useMemo(() => {
+    if (visibleData.length === 0) return defaultYDomain;
+    let min = Infinity, max = -Infinity;
+    visibleData.forEach(d => {
+      yKeys.forEach(key => {
+        const v = d[key] ?? 0;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      });
+    });
+    if (min === max) return defaultYDomain;
+    const pad = (max - min) * 0.1;
+    return [min - pad, max + pad];
+  }, [visibleData, yKeys, defaultYDomain]);
+
+  // Mouse-wheel zoom: shrink/expand the brush range around the center
+  const handleWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    if (data.length < 2) return;
+
+    const [start, end] = brushRange;
+    const span = end - start;
+    const center = Math.round((start + end) / 2);
+
+    // Zoom in when scrolling up (deltaY < 0), zoom out when scrolling down
+    const zoomFactor = e.deltaY < 0 ? 0.75 : 1.25;
+    const newSpan = Math.max(1, Math.min(data.length - 1, Math.round(span * zoomFactor)));
+    const half = Math.round(newSpan / 2);
+
+    const newStart = Math.max(0, center - half);
+    const newEnd = Math.min(data.length - 1, newStart + newSpan);
+    setBrushRange([newStart, newEnd]);
+  }, [brushRange, data.length]);
 
   useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [logs]);
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
-  // Derived Zoomed Data
-  const zoomedData = zoomIndex ? data.slice(zoomIndex[0], zoomIndex[1] + 1) : data;
-
-  // Auto-scale Y domains based on visible X range
-  useEffect(() => {
-    if (!zoomedData || zoomedData.length === 0) return;
-
-    let minAccel = 0, maxAccel = 0;
-    let minEcg1 = 0, maxEcg1 = 0;
-    let minEcg2 = 0, maxEcg2 = 0;
-
-    zoomedData.forEach((d, i) => {
-      const aMax = Math.max(d.accelX, d.accelY, d.accelZ);
-      const aMin = Math.min(d.accelX, d.accelY, d.accelZ);
-      if (i === 0) {
-        minAccel = aMin; maxAccel = aMax;
-        minEcg1 = d.ecg1; maxEcg1 = d.ecg1;
-        minEcg2 = d.ecg2; maxEcg2 = d.ecg2;
-      } else {
-        if (aMin < minAccel) minAccel = aMin;
-        if (aMax > maxAccel) maxAccel = aMax;
-        if (d.ecg1 < minEcg1) minEcg1 = d.ecg1;
-        if (d.ecg1 > maxEcg1) maxEcg1 = d.ecg1;
-        if (d.ecg2 < minEcg2) minEcg2 = d.ecg2;
-        if (d.ecg2 > maxEcg2) maxEcg2 = d.ecg2;
-      }
-    });
-
-    const pad = (min: number, max: number, defaultMin: number, defaultMax: number) => {
-      if (min === max) return [defaultMin, defaultMax];
-      const diff = max - min;
-      return [min - diff * 0.1, max + diff * 0.1] as [number, number];
-    };
-
-    setYDomains({
-      accel: zoomIndex ? pad(minAccel, maxAccel, -1500, 1500) : [-1500, 1500],
-      ecg1: zoomIndex ? pad(minEcg1, maxEcg1, -2, 2) : [-2, 2],
-      ecg2: zoomIndex ? pad(minEcg2, maxEcg2, -2, 2) : [-2, 2]
-    });
-  }, [zoomedData, zoomIndex]);
-
-  const handleZoom = () => {
-    if (refAreaLeft === refAreaRight || refAreaRight === null || refAreaLeft === null) {
-      setRefAreaLeft(null);
-      setRefAreaRight(null);
-      return;
-    }
-
-    const [left, right] = [refAreaLeft, refAreaRight].sort((a, b) => a - b);
-    const startIndex = data.findIndex(d => d.time === left);
-    const endIndex = data.findIndex(d => d.time === right);
-
-    if (startIndex !== -1 && endIndex !== -1) {
-      setZoomIndex([startIndex, endIndex]);
-    }
-
-    setRefAreaLeft(null);
-    setRefAreaRight(null);
-  };
+  const resetZoom = () => setBrushRange([0, Math.max(0, data.length - 1)]);
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden text-light-text dark:text-dark-text">
-      
-      {/* 1. Header Bar */}
-      <div className="flex-none flex items-center justify-between p-3 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#121212]">
+    <div className="border-b border-gray-200 dark:border-[#262626]">
+      {/* Hero Header */}
+      <div className="flex items-center justify-between px-6 pt-5 pb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-1 h-8 rounded-full" style={{ backgroundColor: accentColor }} />
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-widest text-light-text dark:text-dark-text">{title}</h3>
+            <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{tag}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {legend}
+          <button
+            onClick={resetZoom}
+            title="Reset Zoom"
+            className="flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 dark:border-[#333] rounded-sm text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] hover:text-[#1B7A6E] hover:border-[#1B7A6E] transition-colors"
+          >
+            <RotateCcw size={10} /> Reset
+          </button>
+          <span className="hidden sm:flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#555]">
+            <ZoomIn size={10} /> Scroll to zoom
+          </span>
+        </div>
+      </div>
+
+      {/* Chart Area */}
+      <div ref={containerRef} className="px-2 pb-0" style={{ cursor: 'crosshair' }}>
+        <div className="h-48 sm:h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={visibleData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.15} />
+              <XAxis
+                dataKey="time"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                tick={{ fontSize: 9, fill: '#9A9A9A' }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                domain={yDomain}
+                tick={{ fontSize: 10, fill: '#9A9A9A' }}
+                axisLine={false}
+                tickLine={false}
+                width={44}
+                tickFormatter={(v) => v.toFixed(1)}
+              />
+              <RechartsTooltip
+                labelFormatter={(label) => new Date(label).toLocaleTimeString()}
+                contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#333', borderRadius: '4px', fontSize: '11px', color: '#F2F2F2' }}
+                itemStyle={{ fontWeight: 'bold' }}
+              />
+              {children(visibleData, yDomain)}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Full-width Brush Slider */}
+        <div className="h-12 -mt-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
+              <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} hide />
+              {yKeys.map((key, i) => (
+                <Line key={key} type="monotone" dataKey={key} stroke="#555" strokeWidth={0.5} dot={false} isAnimationActive={false} />
+              ))}
+              <Brush
+                dataKey="time"
+                height={28}
+                stroke={accentColor}
+                fill="#111"
+                travellerWidth={6}
+                tickFormatter={() => ''}
+                startIndex={brushRange[0]}
+                endIndex={brushRange[1]}
+                onChange={(e) => {
+                  if (e.startIndex !== undefined && e.endIndex !== undefined) {
+                    setBrushRange([e.startIndex, e.endIndex]);
+                  }
+                }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- MAIN COMPONENT ---
+export default function TelemetryDashboard({ deviceId, ownerName, context }: TelemetryDashboardProps) {
+  const { data, connectionStatus, packetCount, clearBuffers } = useTelemetryStream(deviceId);
+
+  const latestData = data[data.length - 1] || { accelX: 0, accelY: 0, accelZ: 0, ecg1: 0, ecg2: 0, magnitude: 0 };
+
+  return (
+    <div className="flex flex-col h-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden text-light-text dark:text-dark-text">
+
+      {/* ── Global Header ── */}
+      <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#111]">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-[#1B7A6E]/10 flex items-center justify-center rounded-sm">
             <Activity size={16} className="text-[#1B7A6E]" />
           </div>
-          <div className="flex flex-col">
+          <div>
             <h2 className="text-sm font-bold uppercase tracking-widest leading-tight">Sensor Telemetry</h2>
-            <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] leading-tight mt-0.5">
-              {context === 'device-detail' ? (
-                <>Real-Time Board Monitor <span className="mx-1">•</span> {deviceId} {ownerName ? `(${ownerName})` : ''}</>
-              ) : (
-                <>Real-Time Board Monitor {ownerName ? `• ${ownerName}` : ''}</>
-              )}
+            <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] leading-tight">
+              {deviceId} {ownerName ? `• ${ownerName}` : ''}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* Status Pill */}
           <div className={`flex items-center px-2 py-1 rounded-full border text-[10px] font-bold uppercase tracking-widest ${
-            connectionStatus === 'LIVE' ? 'border-[#1B7A6E]/30 text-[#1B7A6E] bg-[#1B7A6E]/5' :
+            connectionStatus === 'LIVE'         ? 'border-[#1B7A6E]/30 text-[#1B7A6E] bg-[#1B7A6E]/5' :
             connectionStatus === 'RECONNECTING' ? 'border-[#D99B3F]/30 text-[#D99B3F] bg-[#D99B3F]/5' :
-            'border-[#C4453D]/30 text-[#C4453D] bg-[#C4453D]/5'
+                                                  'border-[#C4453D]/30 text-[#C4453D] bg-[#C4453D]/5'
           }`}>
             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
               connectionStatus === 'LIVE' ? 'bg-[#1B7A6E] animate-pulse' :
-              connectionStatus === 'RECONNECTING' ? 'bg-[#D99B3F]' :
-              'bg-[#C4453D]'
+              connectionStatus === 'RECONNECTING' ? 'bg-[#D99B3F]' : 'bg-[#C4453D]'
             }`} />
             {connectionStatus}
           </div>
-          <button 
+          <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{packetCount} pts</span>
+          <button
             onClick={clearBuffers}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-[#333] hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-[#333] hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors"
           >
             <RotateCcw size={12} /> Clear
           </button>
         </div>
       </div>
 
-      {/* 2. Top Metrics Row */}
-      <div className="flex-none grid grid-cols-6 border-b border-gray-200 dark:border-[#262626]">
+      {/* ── Top Stats Bar ── */}
+      <div className="flex-none grid grid-cols-6 border-b border-gray-200 dark:border-[#262626] bg-white dark:bg-[#111]">
         {[
           { label: 'ACCEL X', value: latestData.accelX, unit: 'mg', color: '#1B7A6E' },
           { label: 'ACCEL Y', value: latestData.accelY, unit: 'mg', color: '#D99B3F' },
           { label: 'ACCEL Z', value: latestData.accelZ, unit: 'mg', color: '#C4453D' },
-          { label: 'ECG CH1', value: latestData.ecg1, unit: 'mV', color: '#1B7A6E' },
-          { label: 'ECG CH2', value: latestData.ecg2, unit: 'mV', color: '#7C8A94' },
-          { label: 'PACKETS', value: packetCount, unit: 'RECEIVED', color: '#333333', isInt: true }
-        ].map((metric, i) => (
-          <div key={metric.label} className={`flex flex-col p-3 ${i < 5 ? 'border-r border-gray-200 dark:border-[#262626]' : ''}`}>
-            <div className="h-0.5 w-full rounded-full mb-2 opacity-50" style={{ backgroundColor: metric.color }} />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{metric.label}</span>
-            <span className="text-lg font-bold font-mono tracking-tight my-0.5">
-              {metric.isInt ? metric.value.toLocaleString() : metric.value.toFixed(1)}
-            </span>
-            <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{metric.unit}</span>
+          { label: 'ECG CH1', value: latestData.ecg1,   unit: 'mV', color: '#1B7A6E' },
+          { label: 'ECG CH2', value: latestData.ecg2,   unit: 'mV', color: '#7C8A94' },
+          { label: '|Mag|',   value: latestData.magnitude, unit: 'mg', color: '#6366f1', isInt: true },
+        ].map((m, i) => (
+          <div key={m.label} className={`flex flex-col p-3 ${i < 5 ? 'border-r border-gray-200 dark:border-[#262626]' : ''}`}>
+            <div className="h-0.5 w-full rounded-full mb-2 opacity-60" style={{ backgroundColor: m.color }} />
+            <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.label}</span>
+            <span className="text-base font-bold font-mono tracking-tight my-0.5">{m.isInt ? Math.round(m.value) : m.value.toFixed(2)}</span>
+            <span className="text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.unit}</span>
           </div>
         ))}
       </div>
 
+      {/* ── Hero Sections ── */}
       <div className="flex-1 overflow-y-auto">
-        {/* 3. Two-Panel Row: Accelerometer + Magnitude */}
-        <div className="flex flex-col md:flex-row border-b border-gray-200 dark:border-[#262626]">
-          {/* Accelerometer */}
-          <div className="w-full md:w-[60%] p-4 border-b md:border-b-0 md:border-r border-gray-200 dark:border-[#262626] flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold uppercase tracking-widest">Accelerometer</h3>
-                <span className="px-1.5 py-0.5 border border-gray-200 dark:border-[#333] rounded-sm text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">XYZ Axes</span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
-                <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#1B7A6E]" /> X</span>
-                <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#D99B3F]" /> Y</span>
-                <span className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#C4453D]" /> Z</span>
-              </div>
-            </div>
-            <div className="flex-1 min-h-[160px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart 
-                  data={zoomedData} 
-                  syncId="telemetryData"
-                  onMouseDown={(e: any) => e && setRefAreaLeft(e.activeLabel)}
-                  onMouseMove={(e: any) => refAreaLeft !== null && e && setRefAreaRight(e.activeLabel)}
-                  onMouseUp={handleZoom}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.2} />
-                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} hide />
-                  <YAxis domain={yDomains.accel} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={40} />
-                  <RechartsTooltip 
-                    labelFormatter={(label) => new Date(label).toLocaleTimeString()}
-                    contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', borderRadius: '2px', fontSize: '12px', color: '#F2F2F2' }}
-                    itemStyle={{ fontWeight: 'bold' }}
-                  />
-                  <Line type="monotone" dataKey="accelX" name="X" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="accelY" name="Y" stroke="#D99B3F" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="accelZ" name="Z" stroke="#C4453D" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  
-                  {refAreaLeft && refAreaRight ? (
-                    <ReferenceArea x1={refAreaLeft} x2={refAreaRight} />
-                  ) : null}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          {/* Magnitude */}
-          <div className="w-full md:w-[40%] p-4 flex flex-col">
-            <div className="flex items-center gap-2 mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-widest">Magnitude</h3>
-              <span className="px-1.5 py-0.5 border border-gray-200 dark:border-[#333] rounded-sm text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Vector Sum</span>
-            </div>
-            <GaugeSVG value={latestData.magnitude} max={2000} label="Magnitude" unit="mg" />
-            <div className="mt-4 space-y-2">
-              {[
-                { label: 'X', value: latestData.accelX, max: 1500, color: 'bg-[#1B7A6E]' },
-                { label: 'Y', value: latestData.accelY, max: 1500, color: 'bg-[#D99B3F]' },
-                { label: 'Z', value: latestData.accelZ, max: 1500, color: 'bg-[#C4453D]' }
-              ].map(axis => (
-                <div key={axis.label} className="flex items-center text-[10px] font-bold tracking-widest">
-                  <span className="w-4 text-light-text-secondary dark:text-[#9A9A9A]">{axis.label}</span>
-                  <div className="flex-1 h-1.5 bg-gray-100 dark:bg-[#1a1a1a] rounded-full mx-2 overflow-hidden flex items-center">
-                    <div className={`h-full ${axis.color}`} style={{ width: `${Math.min(100, (Math.abs(axis.value) / axis.max) * 100)}%` }} />
-                  </div>
-                  <span className="w-12 text-right font-mono">{axis.value.toFixed(0)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        {/* 4. Two-Panel Row: ECG CH1 + ECG CH2 */}
-        <div className="flex flex-col md:flex-row border-b border-gray-200 dark:border-[#262626]">
-          {[
-            { id: '1', title: 'ECG Channel 1', tag: 'Lead I', dataKey: 'ecg1', color: '#1B7A6E' },
-            { id: '2', title: 'ECG Channel 2', tag: 'Lead II', dataKey: 'ecg2', color: '#7C8A94' }
-          ].map((ch, i) => (
-            <div key={ch.id} className={`w-full md:w-1/2 p-4 flex flex-col ${i === 0 ? 'border-b md:border-b-0 md:border-r border-gray-200 dark:border-[#262626]' : ''}`}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-bold uppercase tracking-widest">{ch.title}</h3>
-                  <span className="px-1.5 py-0.5 border border-gray-200 dark:border-[#333] rounded-sm text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{ch.tag}</span>
-                </div>
-                <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
-                  <div className="w-2 h-0.5" style={{ backgroundColor: ch.color }} /> CH{ch.id}
-                </div>
-              </div>
-              <div className="flex-1 min-h-[140px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart 
-                    data={zoomedData} 
-                    syncId="telemetryData"
-                    onMouseDown={(e: any) => e && setRefAreaLeft(e.activeLabel)}
-                    onMouseMove={(e: any) => refAreaLeft !== null && e && setRefAreaRight(e.activeLabel)}
-                    onMouseUp={handleZoom}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.2} />
-                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} hide />
-                    <YAxis domain={ch.dataKey === 'ecg1' ? yDomains.ecg1 : yDomains.ecg2} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={30} />
-                    <RechartsTooltip 
-                      labelFormatter={(label) => new Date(label).toLocaleTimeString()}
-                      contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', borderRadius: '2px', fontSize: '12px', color: '#F2F2F2' }}
-                      itemStyle={{ fontWeight: 'bold' }}
-                    />
-                    <Line type="monotone" dataKey={ch.dataKey} name={ch.tag} stroke={ch.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                    
-                    {refAreaLeft && refAreaRight ? (
-                      <ReferenceArea x1={refAreaLeft} x2={refAreaRight} />
-                    ) : null}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+        {/* ── 1. Accelerometer ── */}
+        <ChartHero
+          title="Accelerometer"
+          tag="X · Y · Z Axes — mg"
+          accentColor="#1B7A6E"
+          data={data}
+          yKeys={['accelX', 'accelY', 'accelZ']}
+          defaultYDomain={[-1500, 1500]}
+          legend={
+            <div className="flex items-center gap-3 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
+              <span className="flex items-center gap-1"><div className="w-3 h-0.5 bg-[#1B7A6E]" /> X</span>
+              <span className="flex items-center gap-1"><div className="w-3 h-0.5 bg-[#D99B3F]" /> Y</span>
+              <span className="flex items-center gap-1"><div className="w-3 h-0.5 bg-[#C4453D]" /> Z</span>
             </div>
-          ))}
-        </div>
+          }
+        >
+          {() => (
+            <>
+              <Line type="monotone" dataKey="accelX" name="X (mg)" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="accelY" name="Y (mg)" stroke="#D99B3F" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="accelZ" name="Z (mg)" stroke="#C4453D" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            </>
+          )}
+        </ChartHero>
 
-        {/* 5. Master Slider */}
-        <div className="p-4 border-b border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#0a0a0a]">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Master Timeline</h3>
-            <button 
-              onClick={() => setZoomIndex(null)}
-              className="px-3 py-1 bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-[9px] font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
-            >
-              Reset Zoom
-            </button>
-          </div>
-          <div className="w-full h-10">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
-                <Brush 
-                  dataKey="time" 
-                  height={30} 
-                  stroke="#1B7A6E" 
-                  fill="transparent"
-                  tickFormatter={(unixTime) => new Date(unixTime).toLocaleTimeString()} 
-                  onChange={(e) => {
-                    if (e.startIndex !== undefined && e.endIndex !== undefined) {
-                      setZoomIndex([e.startIndex, e.endIndex]);
-                    }
-                  }}
-                  startIndex={zoomIndex ? zoomIndex[0] : 0}
-                  endIndex={zoomIndex ? zoomIndex[1] : (data.length > 0 ? data.length - 1 : 0)}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        {/* ── 2. Magnitude ── */}
+        <ChartHero
+          title="Magnitude"
+          tag="Vector Sum — mg"
+          accentColor="#6366f1"
+          data={data}
+          yKeys={['magnitude']}
+          defaultYDomain={[0, 2000]}
+          legend={
+            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
+              <div className="w-3 h-0.5 bg-[#6366f1]" /> |Mag|
+            </span>
+          }
+        >
+          {() => (
+            <Line type="monotone" dataKey="magnitude" name="|Mag| (mg)" stroke="#6366f1" strokeWidth={2} dot={false} isAnimationActive={false} />
+          )}
+        </ChartHero>
 
-        {/* 6. Event Log Stream */}
-        <div className="flex flex-col h-48 md:h-64 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-xs font-bold uppercase tracking-widest">Event Log</h3>
-            <span className="px-1.5 py-0.5 border border-gray-200 dark:border-[#333] rounded-sm text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Stream</span>
-          </div>
-          <div ref={logContainerRef} className="flex-1 bg-gray-50 dark:bg-[#000000] border border-gray-200 dark:border-[#262626] rounded-sm p-3 overflow-y-auto font-mono text-[10px] text-light-text-secondary dark:text-[#9A9A9A] space-y-1">
-            {logs.length === 0 ? (
-              <div className="italic opacity-50">Waiting for stream data...</div>
-            ) : (
-              logs.map(log => (
-                <div key={log.id}>
-                  <span className="text-[#1B7A6E] mr-2">{log.timestamp}</span>
-                  <span className="text-light-text dark:text-[#F2F2F2]">{log.message}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        {/* ── 3. ECG Channel 1 ── */}
+        <ChartHero
+          title="ECG Channel 1"
+          tag="Lead I — mV"
+          accentColor="#1B7A6E"
+          data={data}
+          yKeys={['ecg1']}
+          defaultYDomain={[-2, 2]}
+          legend={
+            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
+              <div className="w-3 h-0.5 bg-[#1B7A6E]" /> CH1
+            </span>
+          }
+        >
+          {() => (
+            <Line type="monotone" dataKey="ecg1" name="ECG CH1 (mV)" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          )}
+        </ChartHero>
+
+        {/* ── 4. ECG Channel 2 ── */}
+        <ChartHero
+          title="ECG Channel 2"
+          tag="Lead II — mV"
+          accentColor="#7C8A94"
+          data={data}
+          yKeys={['ecg2']}
+          defaultYDomain={[-2, 2]}
+          legend={
+            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
+              <div className="w-3 h-0.5 bg-[#7C8A94]" /> CH2
+            </span>
+          }
+        >
+          {() => (
+            <Line type="monotone" dataKey="ecg2" name="ECG CH2 (mV)" stroke="#7C8A94" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          )}
+        </ChartHero>
+
       </div>
     </div>
   );
