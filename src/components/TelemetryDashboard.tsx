@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   Brush,
   Tooltip as RechartsTooltip,
+  ReferenceArea
 } from 'recharts';
 import { useTelemetryStream } from '../hooks/useTelemetryStream';
 export type { TelemetryPoint, LogEntry } from '../hooks/useTelemetryStream';
@@ -86,11 +87,82 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
   const latestData = data[data.length - 1] || { accelX: 0, accelY: 0, accelZ: 0, ecg1: 0, ecg2: 0, magnitude: 0 };
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  // Zoom State
+  const [zoomIndex, setZoomIndex] = React.useState<[number, number] | null>(null);
+  const [refAreaLeft, setRefAreaLeft] = React.useState<number | null>(null);
+  const [refAreaRight, setRefAreaRight] = React.useState<number | null>(null);
+
+  const [yDomains, setYDomains] = React.useState({
+    accel: [-1500, 1500] as [number, number],
+    ecg1: [-2, 2] as [number, number],
+    ecg2: [-2, 2] as [number, number]
+  });
+
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [logs]);
+
+  // Derived Zoomed Data
+  const zoomedData = zoomIndex ? data.slice(zoomIndex[0], zoomIndex[1] + 1) : data;
+
+  // Auto-scale Y domains based on visible X range
+  useEffect(() => {
+    if (!zoomedData || zoomedData.length === 0) return;
+
+    let minAccel = 0, maxAccel = 0;
+    let minEcg1 = 0, maxEcg1 = 0;
+    let minEcg2 = 0, maxEcg2 = 0;
+
+    zoomedData.forEach((d, i) => {
+      const aMax = Math.max(d.accelX, d.accelY, d.accelZ);
+      const aMin = Math.min(d.accelX, d.accelY, d.accelZ);
+      if (i === 0) {
+        minAccel = aMin; maxAccel = aMax;
+        minEcg1 = d.ecg1; maxEcg1 = d.ecg1;
+        minEcg2 = d.ecg2; maxEcg2 = d.ecg2;
+      } else {
+        if (aMin < minAccel) minAccel = aMin;
+        if (aMax > maxAccel) maxAccel = aMax;
+        if (d.ecg1 < minEcg1) minEcg1 = d.ecg1;
+        if (d.ecg1 > maxEcg1) maxEcg1 = d.ecg1;
+        if (d.ecg2 < minEcg2) minEcg2 = d.ecg2;
+        if (d.ecg2 > maxEcg2) maxEcg2 = d.ecg2;
+      }
+    });
+
+    const pad = (min: number, max: number, defaultMin: number, defaultMax: number) => {
+      if (min === max) return [defaultMin, defaultMax];
+      const diff = max - min;
+      return [min - diff * 0.1, max + diff * 0.1] as [number, number];
+    };
+
+    setYDomains({
+      accel: zoomIndex ? pad(minAccel, maxAccel, -1500, 1500) : [-1500, 1500],
+      ecg1: zoomIndex ? pad(minEcg1, maxEcg1, -2, 2) : [-2, 2],
+      ecg2: zoomIndex ? pad(minEcg2, maxEcg2, -2, 2) : [-2, 2]
+    });
+  }, [zoomedData, zoomIndex]);
+
+  const handleZoom = () => {
+    if (refAreaLeft === refAreaRight || refAreaRight === null || refAreaLeft === null) {
+      setRefAreaLeft(null);
+      setRefAreaRight(null);
+      return;
+    }
+
+    const [left, right] = [refAreaLeft, refAreaRight].sort((a, b) => a - b);
+    const startIndex = data.findIndex(d => d.time === left);
+    const endIndex = data.findIndex(d => d.time === right);
+
+    if (startIndex !== -1 && endIndex !== -1) {
+      setZoomIndex([startIndex, endIndex]);
+    }
+
+    setRefAreaLeft(null);
+    setRefAreaRight(null);
+  };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden text-light-text dark:text-dark-text">
@@ -173,18 +245,28 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
             </div>
             <div className="flex-1 min-h-[160px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} syncId="telemetryData">
+                <LineChart 
+                  data={zoomedData} 
+                  syncId="telemetryData"
+                  onMouseDown={(e: any) => e && setRefAreaLeft(e.activeLabel)}
+                  onMouseMove={(e: any) => refAreaLeft !== null && e && setRefAreaRight(e.activeLabel)}
+                  onMouseUp={handleZoom}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.2} />
-                  <XAxis dataKey="timestamp" hide />
-                  <YAxis domain={[-1500, 1500]} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={40} />
+                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} hide />
+                  <YAxis domain={yDomains.accel} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={40} />
                   <RechartsTooltip 
+                    labelFormatter={(label) => new Date(label).toLocaleTimeString()}
                     contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', borderRadius: '2px', fontSize: '12px', color: '#F2F2F2' }}
                     itemStyle={{ fontWeight: 'bold' }}
                   />
                   <Line type="monotone" dataKey="accelX" name="X" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                   <Line type="monotone" dataKey="accelY" name="Y" stroke="#D99B3F" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                   <Line type="monotone" dataKey="accelZ" name="Z" stroke="#C4453D" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Brush dataKey="timestamp" height={20} stroke="#1B7A6E" fill="#000000" tickFormatter={() => ''} />
+                  
+                  {refAreaLeft && refAreaRight ? (
+                    <ReferenceArea x1={refAreaLeft} x2={refAreaRight} />
+                  ) : null}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -232,15 +314,26 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
               </div>
               <div className="flex-1 min-h-[140px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data} syncId="telemetryData">
+                  <LineChart 
+                    data={zoomedData} 
+                    syncId="telemetryData"
+                    onMouseDown={(e: any) => e && setRefAreaLeft(e.activeLabel)}
+                    onMouseMove={(e: any) => refAreaLeft !== null && e && setRefAreaRight(e.activeLabel)}
+                    onMouseUp={handleZoom}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.2} />
-                    <XAxis dataKey="timestamp" hide />
-                    <YAxis domain={[-2, 2]} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={30} />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} hide />
+                    <YAxis domain={ch.dataKey === 'ecg1' ? yDomains.ecg1 : yDomains.ecg2} tick={{ fontSize: 10, fill: '#9A9A9A' }} axisLine={false} tickLine={false} width={30} />
                     <RechartsTooltip 
+                      labelFormatter={(label) => new Date(label).toLocaleTimeString()}
                       contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', borderRadius: '2px', fontSize: '12px', color: '#F2F2F2' }}
                       itemStyle={{ fontWeight: 'bold' }}
                     />
                     <Line type="monotone" dataKey={ch.dataKey} name={ch.tag} stroke={ch.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    
+                    {refAreaLeft && refAreaRight ? (
+                      <ReferenceArea x1={refAreaLeft} x2={refAreaRight} />
+                    ) : null}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -248,7 +341,40 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
           ))}
         </div>
 
-        {/* 5. Event Log Stream */}
+        {/* 5. Master Slider */}
+        <div className="p-4 border-b border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#0a0a0a]">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Master Timeline</h3>
+            <button 
+              onClick={() => setZoomIndex(null)}
+              className="px-3 py-1 bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-[9px] font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
+            >
+              Reset Zoom
+            </button>
+          </div>
+          <div className="w-full h-10">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data}>
+                <Brush 
+                  dataKey="time" 
+                  height={30} 
+                  stroke="#1B7A6E" 
+                  fill="transparent"
+                  tickFormatter={(unixTime) => new Date(unixTime).toLocaleTimeString()} 
+                  onChange={(e) => {
+                    if (e.startIndex !== undefined && e.endIndex !== undefined) {
+                      setZoomIndex([e.startIndex, e.endIndex]);
+                    }
+                  }}
+                  startIndex={zoomIndex ? zoomIndex[0] : 0}
+                  endIndex={zoomIndex ? zoomIndex[1] : (data.length > 0 ? data.length - 1 : 0)}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* 6. Event Log Stream */}
         <div className="flex flex-col h-48 md:h-64 p-4">
           <div className="flex items-center gap-2 mb-3">
             <h3 className="text-xs font-bold uppercase tracking-widest">Event Log</h3>
