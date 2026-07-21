@@ -215,9 +215,9 @@ export default function App() {
               {currentView === 'alarms' && (
                 <AlarmPage 
                   alarms={alarms}
-                  onAcknowledge={(id) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Acknowledged', history: [...a.history, { timestamp: new Date().toISOString(), action: 'Acknowledged', user: 'Admin' }] } : a))}
-                  onResolve={(id, note) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Resolved', history: [...a.history, { timestamp: new Date().toISOString(), action: 'Resolved', user: 'Admin', note }] } : a))}
-                  onReopen={(id) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Active', history: [...a.history, { timestamp: new Date().toISOString(), action: 'Reopened', user: 'Admin' }] } : a))}
+                  onAcknowledge={(id) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Acknowledged', history: [...(a.history || []), { timestamp: new Date().toISOString(), action: 'Acknowledged', user: 'Admin' }] } : a))}
+                  onResolve={(id, note) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Resolved', history: [...(a.history || []), { timestamp: new Date().toISOString(), action: 'Resolved', user: 'Admin', note }] } : a))}
+                  onReopen={(id) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, status: 'Active', history: [...(a.history || []), { timestamp: new Date().toISOString(), action: 'Reopened', user: 'Admin' }] } : a))}
                   onAssign={(id, staffId) => setAlarms(prev => prev.map(a => a.id === id ? { ...a, assignedTo: staffId, history: [...(a.history || []), { timestamp: new Date().toISOString(), action: 'Assigned', user: 'Admin', note: `Assigned to ${staffId}` }] } : a))}
                   onViewDevice={(id) => navigateToDevices(id)}
                 />
