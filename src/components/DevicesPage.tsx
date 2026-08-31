@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
+import {
   Search, Filter, X, Signal, SignalZero, SignalLow, SignalMedium, SignalHigh,
   Battery, AlertTriangle, ArrowLeft, Download, Clock, User, Hash, HardDrive, Wifi, WifiOff, FileText, ChevronLeft, ChevronRight, CheckSquare, Square, Zap, RefreshCw, Smartphone, Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
+import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   AreaChart, Area, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart
 } from 'recharts';
@@ -34,7 +34,7 @@ function Sparkline({ data, color = '#1B7A6E', height = 20, width = 50 }: { data:
     const y = height - ((v - min) / range) * height;
     return `${x},${y}`;
   }).join(' ');
-  
+
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity="0.8" />
@@ -43,11 +43,10 @@ function Sparkline({ data, color = '#1B7A6E', height = 20, width = 50 }: { data:
 }
 
 const StatusBadge = ({ isOnline }: { isOnline: boolean }) => (
-  <span className={`inline-flex items-center px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-widest ${
-    isOnline 
-      ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/20' 
+  <span className={`inline-flex items-center px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-widest ${isOnline
+      ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/20'
       : 'bg-[#C4453D]/10 text-[#C4453D] border border-[#C4453D]/20'
-  }`}>
+    }`}>
     <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isOnline ? 'bg-[#1B7A6E]' : 'bg-[#C4453D]'}`}></span>
     {isOnline ? 'Online' : 'Offline'}
   </span>
@@ -82,7 +81,7 @@ const SignalIndicator = ({ strength, sparkData }: { strength: number, sparkData?
 
   const color = strength > 0 ? 'text-[#1B7A6E]' : 'text-[#C4453D]';
   const hexColor = strength > 0 ? '#1B7A6E' : '#C4453D';
-  
+
   return (
     <div className="flex items-center gap-3">
       <Icon className={color} size={16} />
@@ -134,22 +133,22 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
         </h2>
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mr-2">Range:</span>
-          <button 
+          <button
             onClick={() => setTimeRange('7d')}
             className={`px-3 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors ${timeRange === '7d' ? 'bg-[#1B7A6E] text-white' : 'bg-gray-100 dark:bg-[#1a1a1a] text-light-text-secondary dark:text-[#9A9A9A] hover:bg-gray-200 dark:hover:bg-[#262626]'}`}
           >7 Days</button>
-          <button 
+          <button
             onClick={() => setTimeRange('30d')}
             className={`px-3 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors ${timeRange === '30d' ? 'bg-[#1B7A6E] text-white' : 'bg-gray-100 dark:bg-[#1a1a1a] text-light-text-secondary dark:text-[#9A9A9A] hover:bg-gray-200 dark:hover:bg-[#262626]'}`}
           >30 Days</button>
-          <button 
+          <button
             onClick={() => setTimeRange('custom')}
             className={`px-3 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors ${timeRange === 'custom' ? 'bg-[#1B7A6E] text-white' : 'bg-gray-100 dark:bg-[#1a1a1a] text-light-text-secondary dark:text-[#9A9A9A] hover:bg-gray-200 dark:hover:bg-[#262626]'}`}
           >Custom</button>
-          
+
           {timeRange === 'custom' && (
-            <input 
-              type="date" 
+            <input
+              type="date"
               value={customDate}
               onChange={(e) => setCustomDate(e.target.value)}
               className="ml-2 px-2 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-[10px] uppercase tracking-widest outline-none focus:ring-1 focus:ring-[#1B7A6E]"
@@ -159,7 +158,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
       </div>
 
       <div className="flex flex-col gap-10">
-        
+
         {/* 1. QRS vs. Motion Artifacts */}
         <div className="card-3d p-6 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
           <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-4 flex items-center">
@@ -170,7 +169,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
           </p>
           <div className="h-64 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-2 border border-gray-100 dark:border-[#1a1a1a]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart 
+              <ComposedChart
                 data={[
                   { time: '0ms', ecg: 0.0, motion: 0.1 },
                   { time: '100ms', ecg: 0.1, motion: 0.2 },
@@ -194,7 +193,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                 <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="left" domain={[-1.5, 2]} tick={{ fontSize: 9, fill: '#22c55e' }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="right" orientation="right" domain={[0, 3]} tick={{ fontSize: 9, fill: '#C4453D' }} axisLine={false} tickLine={false} />
-                <RechartsTooltip 
+                <RechartsTooltip
                   contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '11px', color: '#F2F2F2' }}
                   itemStyle={{ fontWeight: 'bold' }}
                 />
@@ -219,20 +218,20 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               <div className="h-48 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={[
-                    { time: 'Day 1', val: 80 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 90 }, 
-                    { time: 'Day 4', val: 85 }, { time: 'Day 5', val: 95 }, { time: 'Day 6', val: 100 }, 
+                    { time: 'Day 1', val: 80 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 90 },
+                    { time: 'Day 4', val: 85 }, { time: 'Day 5', val: 95 }, { time: 'Day 6', val: 100 },
                     { time: 'Day 7', val: 94 }
                   ]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorSignal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="#1B7A6E" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#1B7A6E" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
                     <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} />
-                    <RechartsTooltip 
+                    <RechartsTooltip
                       contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '10px', color: '#F2F2F2', padding: '4px 8px' }}
                       itemStyle={{ color: '#1B7A6E', fontWeight: 'bold' }}
                       labelStyle={{ display: 'none' }}
@@ -243,7 +242,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                 </ResponsiveContainer>
               </div>
             </div>
-            
+
             <div className="flex flex-col">
               <div className="flex justify-between items-end mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Battery Level</span>
@@ -252,20 +251,20 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               <div className="h-48 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={[
-                    { time: 'Day 1', val: 100 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 70 }, 
-                    { time: 'Day 4', val: 55 }, { time: 'Day 5', val: 100 }, { time: 'Day 6', val: 80 }, 
+                    { time: 'Day 1', val: 100 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 70 },
+                    { time: 'Day 4', val: 55 }, { time: 'Day 5', val: 100 }, { time: 'Day 6', val: 80 },
                     { time: 'Day 7', val: 65 }
                   ]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorBatt" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#D99B3F" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="#D99B3F" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#D99B3F" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#D99B3F" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
                     <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} />
-                    <RechartsTooltip 
+                    <RechartsTooltip
                       contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '10px', color: '#F2F2F2', padding: '4px 8px' }}
                       itemStyle={{ color: '#D99B3F', fontWeight: 'bold' }}
                       labelStyle={{ display: 'none' }}
@@ -299,14 +298,14 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                   <PolarAngleAxis dataKey="subject" tick={{ fill: '#9A9A9A', fontSize: 9 }} />
                   <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
                   <Radar name="Device Health" dataKey="A" stroke="#1B7A6E" fill="#1B7A6E" fillOpacity={0.3} />
-                  <RechartsTooltip 
+                  <RechartsTooltip
                     contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '11px', color: '#F2F2F2' }}
                     itemStyle={{ color: '#1B7A6E', fontWeight: 'bold' }}
                   />
                 </RadarChart>
               </ResponsiveContainer>
             </div>
-            
+
             {/* Text Insights */}
             <div className="w-full md:w-1/2 space-y-3">
               <div className="flex items-start gap-3 p-3 bg-[#D99B3F]/5 border border-[#D99B3F]/20 rounded-sm">
@@ -383,9 +382,9 @@ export default function DevicesPage({
   devices = [],
   isLoading = false,
   getDeviceDetail = defaultGetDeviceDetail,
-  onManageCommands = () => {},
-  onExportReadings = (deviceId: string, detailData: any) => {},
-  onClearFilters = () => {},
+  onManageCommands = () => { },
+  onExportReadings = (deviceId: string, detailData: any) => { },
+  onClearFilters = () => { },
   initialSelectedDeviceId = null,
   onViewTelemetry
 }: DevicesPageProps) {
@@ -404,7 +403,7 @@ export default function DevicesPage({
   useEffect(() => {
     setSelectedDeviceId(initialSelectedDeviceId);
   }, [initialSelectedDeviceId]);
-  
+
   useEffect(() => {
     if (selectedDeviceId) {
       setIsDetailLoading(true);
@@ -436,9 +435,9 @@ export default function DevicesPage({
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      return d.id.toLowerCase().includes(q) || 
-             (d.serialNumber || '').toLowerCase().includes(q) || 
-             (d.ownerName || '').toLowerCase().includes(q);
+      return d.id.toLowerCase().includes(q) ||
+        (d.serialNumber || '').toLowerCase().includes(q) ||
+        (d.ownerName || '').toLowerCase().includes(q);
     }
     return true;
   }), [devices, statusFilter, firmwareFilter, searchQuery]);
@@ -465,7 +464,7 @@ export default function DevicesPage({
   if (!selectedDeviceId) {
     return (
       <div className="h-full flex flex-col bg-light-bg dark:bg-[#000000] text-light-text dark:text-[#F2F2F2] overflow-hidden relative">
-        
+
         {/* Header & Filter Bar */}
         <div className="flex-none px-8 md:px-12 py-6 border-b border-gray-200 dark:border-[#262626] space-y-5">
           <div className="flex items-center justify-between">
@@ -481,17 +480,17 @@ export default function DevicesPage({
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-[#666]" size={14} />
-              <input 
-                type="text" 
-                placeholder="Search by ID, Serial, or Owner..." 
+              <input
+                type="text"
+                placeholder="Search by ID, Serial, or Owner..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] transition-all"
               />
             </div>
-            
+
             <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0">
-              <select 
+              <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
                 className="px-3 py-2 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer min-w-[130px]"
@@ -502,8 +501,8 @@ export default function DevicesPage({
                 <option value="Low Battery">Low Battery</option>
                 <option value="Needs Update">Needs Update</option>
               </select>
-              
-              <select 
+
+              <select
                 value={firmwareFilter}
                 onChange={e => setFirmwareFilter(e.target.value)}
                 className="px-3 py-2 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer hidden sm:block min-w-[130px]"
@@ -513,7 +512,7 @@ export default function DevicesPage({
               </select>
 
               {(searchQuery || statusFilter !== 'All' || firmwareFilter !== 'All Firmware') && (
-                <button 
+                <button
                   onClick={handleClearFilters}
                   className="px-3 py-2 text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[#1B7A6E] whitespace-nowrap cursor-pointer flex items-center"
                 >
@@ -584,25 +583,25 @@ export default function DevicesPage({
                       const isSelected = selectedDeviceIds.has(device.id);
                       const isOffline = device.connectivityStatus === 'Offline';
                       const isLowBatt = device.batteryLevel <= 20;
-                      
+
                       let rowBg = 'hover:bg-gray-50 dark:hover:bg-[#1a1a1a]';
                       if (isSelected) rowBg = 'bg-[#1B7A6E]/5 hover:bg-[#1B7A6E]/10';
                       else if (isOffline) rowBg = 'bg-[#C4453D]/5 hover:bg-[#C4453D]/10';
                       else if (isLowBatt) rowBg = 'bg-[#D99B3F]/5 hover:bg-[#D99B3F]/10';
 
                       // Mock sparkline data based on battery/signal
-                      const battSpark = Array.from({length: 10}, (_, i) => device.batteryLevel + Math.sin(i) * 5 + (i * 2));
-                      const sigSpark = Array.from({length: 10}, (_, i) => (device.signalStrength * 25) + (Math.random() * 20 - 10));
+                      const battSpark = Array.from({ length: 10 }, (_, i) => device.batteryLevel + Math.sin(i) * 5 + (i * 2));
+                      const sigSpark = Array.from({ length: 10 }, (_, i) => (device.signalStrength * 25) + (Math.random() * 20 - 10));
 
                       return (
-                        <tr 
+                        <tr
                           key={device.id}
                           onClick={() => setSelectedDeviceId(device.id)}
                           tabIndex={0}
                           className={`transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B7A6E] ${rowBg} ${isOffline ? 'border-l-4 border-l-[#C4453D]' : isLowBatt ? 'border-l-4 border-l-[#D99B3F]' : 'border-l-4 border-l-transparent'}`}
                         >
                           <td className="px-4 py-5 text-center">
-                            <button 
+                            <button
                               onClick={(e) => toggleSelectDevice(e, device.id)}
                               className="outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                             >
@@ -651,7 +650,7 @@ export default function DevicesPage({
         {/* Bulk Action Toolbar */}
         <AnimatePresence>
           {selectedDeviceIds.size > 0 && (
-            <motion.div 
+            <motion.div
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
@@ -662,17 +661,17 @@ export default function DevicesPage({
               </div>
               <div className="h-4 w-px bg-gray-200 dark:bg-[#333]" />
               <div className="flex items-center gap-2">
-                <button 
+                <button
                   className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] hover:text-light-text dark:hover:text-[#F2F2F2] hover:bg-gray-100 dark:hover:bg-[#1a1a1a] rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
                 >
                   <RefreshCw size={14} /> Restart
                 </button>
-                <button 
+                <button
                   className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-[#D99B3F] hover:bg-[#D99B3F]/10 rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#D99B3F]"
                 >
                   <Download size={14} /> Push Firmware
                 </button>
-                <button 
+                <button
                   className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] hover:text-light-text dark:hover:text-[#F2F2F2] hover:bg-gray-100 dark:hover:bg-[#1a1a1a] rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
                 >
                   <Zap size={14} /> Ping
@@ -690,13 +689,13 @@ export default function DevicesPage({
 
   // --- RENDER DETAIL VIEW ---
   const device = devices.find(d => d.id === selectedDeviceId) || devices[0];
-  
+
   if (!device) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 bg-light-bg dark:bg-[#000000] text-light-text-secondary dark:text-[#9A9A9A]">
         <div className="w-8 h-8 border-2 border-[#1B7A6E]/30 border-t-[#1B7A6E] rounded-full animate-spin mb-4"></div>
         <p className="text-sm">Loading device details...</p>
-        <button 
+        <button
           onClick={() => setSelectedDeviceId(null)}
           className="mt-4 text-xs font-bold uppercase tracking-widest text-[#1B7A6E] hover:underline"
         >
@@ -705,13 +704,13 @@ export default function DevicesPage({
       </div>
     );
   }
-  
+
   return (
     <div className="h-full flex flex-col bg-light-bg dark:bg-[#000000] text-light-text dark:text-[#F2F2F2] overflow-hidden">
-      
+
       {/* Detail Header */}
       <div className="flex-none p-6 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#121212] sticky top-0 z-10">
-        <button 
+        <button
           onClick={() => setSelectedDeviceId(null)}
           className="flex items-center text-xs font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors mb-6 outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm py-1 px-2 -ml-2 cursor-pointer"
         >
@@ -739,17 +738,17 @@ export default function DevicesPage({
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-3">
             {onViewTelemetry && (
-              <button 
+              <button
                 onClick={() => onViewTelemetry(device.id)}
                 className="px-5 py-2.5 bg-gray-100 dark:bg-[#1a1a1a] hover:bg-gray-200 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-xs font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer"
               >
                 View Live Telemetry
               </button>
             )}
-            <button 
+            <button
               onClick={() => onManageCommands(device.id)}
               className="px-5 py-2.5 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-xs font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm"
             >

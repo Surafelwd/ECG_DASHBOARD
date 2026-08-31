@@ -12,20 +12,70 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+  app.use(express.text({ type: ['text/csv', 'text/plain'], limit: '50mb' }));
 
   // Ingest API
   app.post('/api/ingest', async (req, res) => {
     try {
-      const body = req.body;
-      let readingsArray = [];
-      if (Array.isArray(body.readings)) {
-        readingsArray = body.readings;
-      } else if (body.readings && typeof body.readings === 'object') {
-        readingsArray = [body.readings];
+      let readingsArray: any[] = [];
+      let deviceKey = '';
+
+      if (typeof req.body === 'string') {
+        // V1 Firmware CSV Format
+        const lines = req.body.trim().split('\n');
+        
+        if (lines.length < 2) {
+          return res.status(400).json({ error: 'Bad Request: Empty or invalid CSV payload' });
+        }
+
+        // Line 0: device_id,STM32-<UID>
+        const deviceIdRow = lines[0].split(',').map(s => s.trim());
+        if (deviceIdRow[0] === 'device_id') {
+           deviceKey = deviceIdRow[1];
+        }
+
+        // Parse telemetry rows starting from line 2 (skipping header at line 1)
+        for (let i = 2; i < lines.length; i++) {
+          const row = lines[i].split(',').map(s => s.trim());
+          if (row.length < 6) continue;
+          
+          readingsArray.push({
+            uptime: Number(row[0]),
+            accel_x: Number(row[1]),
+            accel_y: Number(row[2]),
+            accel_z: Number(row[3]),
+            ecg_ch1: Number(row[4]),
+            ecg_ch2: Number(row[5]),
+          });
+        }
+
+        // Calculate absolute timestamps by assuming the latest reading is 'now'
+        if (readingsArray.length > 0) {
+          const maxUptime = Math.max(...readingsArray.map(r => r.uptime));
+          const now = Date.now();
+          readingsArray = readingsArray.map(r => {
+            const absoluteTimestamp = now - (maxUptime - r.uptime);
+            return {
+              timestamp: absoluteTimestamp,
+              accel_x: r.accel_x,
+              accel_y: r.accel_y,
+              accel_z: r.accel_z,
+              ecg_ch1: r.ecg_ch1,
+              ecg_ch2: r.ecg_ch2,
+            };
+          });
+        }
+      } else {
+        // Fallback for older JSON format
+        const body = req.body || {};
+        if (Array.isArray(body.readings)) {
+          readingsArray = body.readings;
+        } else if (body.readings && typeof body.readings === 'object') {
+          readingsArray = [body.readings];
+        }
+        deviceKey = body.device_id || body.api_key || (body.readings && body.readings.device_id);
       }
 
-      const deviceKey = body.device_id || body.api_key || (body.readings && body.readings.device_id);
-      
       if (!deviceKey) {
         return res.status(401).json({ error: 'Unauthorized: Missing device_id or api_key' });
       }
@@ -107,7 +157,7 @@ async function startServer() {
         sumMagnitude += Math.sqrt(r.accel_x ** 2 + r.accel_y ** 2 + r.accel_z ** 2);
       }
       const avgMagnitude = sumMagnitude / readingsArray.length;
-      
+
       if (avgMagnitude > 5.0) {
         await db.insert(events).values({
           device_id: device.id,
@@ -125,9 +175,9 @@ async function startServer() {
         sessionId,
         samplesReceived: readingsArray.length,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Unexpected error in ingest function:', err);
-      return res.status(500).json({ error: 'Internal Server Error' });
+      return res.status(500).json({ error: 'Internal Server Error', details: err.message || err.toString() });
     }
   });
 
@@ -193,7 +243,7 @@ async function startServer() {
         .select({
           sessionId: readings.session_id,
           startTime: sql<Date>`min(${readings.time})`.as('start_time'),
-          endTime:   sql<Date>`max(${readings.time})`.as('end_time'),
+          endTime: sql<Date>`max(${readings.time})`.as('end_time'),
           sampleCount: sql<number>`count(*)`.as('sample_count'),
         })
         .from(readings)
@@ -202,11 +252,11 @@ async function startServer() {
         .orderBy(desc(sql`max(${readings.time})`));
 
       const sessions = rows.map(r => ({
-        sessionId:   r.sessionId,
-        startTime:   r.startTime,
-        endTime:     r.endTime,
+        sessionId: r.sessionId,
+        startTime: r.startTime,
+        endTime: r.endTime,
         sampleCount: Number(r.sampleCount),
-        durationMs:  r.endTime && r.startTime
+        durationMs: r.endTime && r.startTime
           ? new Date(r.endTime).getTime() - new Date(r.startTime).getTime()
           : 0,
       }));
