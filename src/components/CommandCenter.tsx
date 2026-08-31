@@ -5,6 +5,7 @@ import {
   Settings, Power, Trash2, Edit2, Check, X, ChevronDown, ChevronRight, AlertTriangle, Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { MockTerminal } from './VisualComponents';
 
 // --- MOCK DATA ---
 const MOCK_DEVICE = {
@@ -323,6 +324,17 @@ export default function CommandCenter({
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Last 3 Commands Strip */}
+            <div className="hidden lg:flex items-center gap-1.5 mr-2 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#262626] rounded-sm p-1">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mx-1">Recent:</span>
+              {commandLog.slice(0, 3).map((cmd) => (
+                <div key={cmd.id} className="flex items-center gap-1.5 bg-white dark:bg-[#121212] px-2 py-0.5 rounded-sm border border-gray-200 dark:border-[#333]">
+                  {cmd.status === 'Success' ? <CheckCircle size={10} className="text-[#1B7A6E]" /> : cmd.status === 'Failed' ? <XCircle size={10} className="text-[#C4453D]" /> : <Clock size={10} className="text-[#D99B3F]" />}
+                  <span className="text-[10px] font-bold truncate max-w-[80px]" title={cmd.type}>{cmd.type}</span>
+                </div>
+              ))}
+            </div>
+
             <div className="relative hidden sm:flex items-center">
               <Search size={12} className="absolute left-2 text-light-text-secondary dark:text-[#9A9A9A] pointer-events-none" />
               <input 
@@ -364,34 +376,60 @@ export default function CommandCenter({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex-1 overflow-auto p-6 md:p-12 w-full space-y-16">
         
-        {/* Telemetry Access */}
-        <div className="bg-light-card dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm p-6 flex flex-col items-center justify-center text-center">
-          <Activity size={32} className="text-[#1B7A6E] mb-3" />
-          <h2 className="text-sm font-bold uppercase tracking-widest mb-2 text-light-text dark:text-dark-text">Live Telemetry Available</h2>
-          <p className="text-xs text-light-text-secondary dark:text-[#9A9A9A] max-w-md mb-4">
-            Access the dedicated real-time sensor telemetry dashboard for this device.
-          </p>
-          <button 
-            onClick={() => onViewTelemetry?.(device.id)}
-            className="px-6 py-2 bg-white dark:bg-[#1a1a1a] hover:bg-gray-50 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] text-light-text dark:text-[#F2F2F2] rounded-sm text-xs font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
-          >
-            Open Telemetry Dashboard
-          </button>
+        {/* Device Health Summary & Telemetry */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-gray-200 dark:border-[#262626]">
+          <div className="flex gap-8 md:gap-12 flex-wrap">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2">Battery Health</span>
+              <div className="flex items-center gap-2">
+                <BatteryIndicator level={device.batteryLevel} />
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2">Signal Quality</span>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  {[1,2,3,4].map(i => <div key={i} className={`w-2 h-2 rounded-full ${i <= device.signalStrength ? 'bg-[#1B7A6E]' : 'bg-gray-200 dark:bg-[#333]'}`} />)}
+                </div>
+                <span className="text-xs font-bold text-[#1B7A6E]">{device.signalStrength}/4</span>
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2">Firmware</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold">{device.firmwareVersion}</span>
+                {device.firmwareUpdateAvailable && <span className="text-[9px] font-bold bg-[#D99B3F]/10 text-[#D99B3F] px-1.5 py-0.5 rounded-sm uppercase tracking-widest">Update</span>}
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2">Uptime</span>
+              <span className="text-xs font-bold font-mono">14d 6h 22m</span>
+            </div>
+          </div>
+          <div className="flex flex-col items-start md:items-end md:pl-6">
+            <button 
+              onClick={() => onViewTelemetry?.(device.id)}
+              className="btn-3d flex items-center justify-center px-6 py-2.5 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-xs font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E]"
+            >
+              <Activity size={14} className="mr-2" /> Data &amp; Analysis &rarr;
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <div className="flex flex-col gap-12">
           
-          {/* Command Panel */}
-          <div className="bg-light-card dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#0a0a0a]">
-              <h2 className="text-xs font-bold uppercase tracking-widest flex items-center">
-                <Terminal size={16} className="mr-2 text-[#1B7A6E]" /> Command Interface
-              </h2>
-            </div>
-            
-            <div className="divide-y divide-gray-200 dark:divide-[#262626]">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Command Panel */}
+            <div className="flex flex-col lg:col-span-2">
+              <div className="pb-3 mb-4 border-b border-gray-200 dark:border-[#262626]">
+                <h2 className="text-sm font-bold uppercase tracking-widest flex items-center">
+                  <Terminal size={18} className="mr-2 text-[#1B7A6E]" /> Command Interface
+                </h2>
+              </div>
+              
+              <div className="card-3d divide-y divide-gray-100 dark:divide-[#262626]">
               {/* Firmware */}
               <div>
                 <AccordionHeader id="firmware" icon={DownloadCloud} title="Firmware Commands" />
@@ -421,7 +459,7 @@ export default function CommandCenter({
                                 addLog('Firmware Update', 'Pending', 'Pushing new firmware...');
                               }
                             )}
-                            className="flex-1 py-2 bg-gray-100 dark:bg-[#1a1a1a] hover:bg-gray-200 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="btn-3d flex-1 py-2 bg-gray-100 dark:bg-[#1a1a1a] hover:bg-gray-200 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Push Update
                           </button>
@@ -481,7 +519,7 @@ export default function CommandCenter({
                                 addLog('Update Schedule', 'Pending', `Changed to: ${scheduleInput}`);
                               }
                             )}
-                            className="flex-1 py-2 bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] font-bold uppercase tracking-widest text-xs rounded-sm transition-colors"
+                            className="btn-3d flex-1 py-2 bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] font-bold uppercase tracking-widest text-xs rounded-sm transition-colors"
                           >
                             Save Schedule
                           </button>
@@ -512,7 +550,7 @@ export default function CommandCenter({
                           <button 
                             onClick={runDiagnostic}
                             disabled={isDiagnosticRunning}
-                            className="flex-1 py-2 bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] font-bold uppercase tracking-widest text-xs rounded-sm transition-colors flex items-center justify-center disabled:opacity-50"
+                            className="btn-3d flex-1 py-2 bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] font-bold uppercase tracking-widest text-xs rounded-sm transition-colors flex items-center justify-center disabled:opacity-50"
                           >
                             {isDiagnosticRunning ? (
                               <div className="w-4 h-4 border-2 border-[#1B7A6E]/30 border-t-[#1B7A6E] rounded-full animate-spin mr-2"></div>
@@ -539,7 +577,7 @@ export default function CommandCenter({
                         )}
 
                         {diagnosticResults && (
-                          <div className="mt-4 border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden">
+                          <div className="card-3d mt-4 border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden">
                             <div className="bg-gray-50 dark:bg-[#0a0a0a] p-2 border-b border-gray-200 dark:border-[#262626]">
                               <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Results Checklist</span>
                             </div>
@@ -704,13 +742,25 @@ export default function CommandCenter({
                   )}
                 </AnimatePresence>
               </div>
+              </div>
+            </div>
+
+            {/* Live Data Terminal (Right Column) */}
+            <div className="flex flex-col">
+              <div className="pb-3 mb-4 border-b border-gray-200 dark:border-[#262626]">
+                <h2 className="text-sm font-bold uppercase tracking-widest flex items-center">
+                  <Activity size={18} className="mr-2 text-[#3ADB8F]" /> Live Data Stream
+                </h2>
+              </div>
+              <div className="card-3d overflow-hidden h-full min-h-[300px]">
+                <MockTerminal />
+              </div>
             </div>
           </div>
-
           {/* Command Log */}
-          <div className="bg-light-card dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden flex flex-col h-full min-h-[400px]">
-            <div className="p-4 border-b border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-widest">Command Log</h2>
+          <div className="flex flex-col min-h-[400px] mb-12">
+            <div className="pb-3 mb-4 border-b border-gray-200 dark:border-[#262626] flex items-center justify-between">
+              <h2 className="text-sm font-bold uppercase tracking-widest">Command Log</h2>
             </div>
             
             <div className="flex-1 overflow-x-auto">
@@ -747,7 +797,7 @@ export default function CommandCenter({
               </table>
             </div>
             
-            <div className="p-3 border-t border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#0a0a0a] text-center">
+            <div className="pt-4 text-center">
               <span className="text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest">Showing last {localLog.length} commands</span>
             </div>
           </div>

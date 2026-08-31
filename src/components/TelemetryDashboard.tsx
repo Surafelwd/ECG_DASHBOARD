@@ -128,7 +128,7 @@ function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legen
 
       {/* Chart */}
       <div ref={containerRef} className="px-2 pb-0" style={{ cursor: 'crosshair' }}>
-        <div className="h-52">
+        <div className="h-80 md:h-96">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={visibleData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.15} />
@@ -264,17 +264,17 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
   const selectedSession = sessions.find(s => s.sessionId === selectedSessionId);
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#262626] rounded-sm overflow-hidden text-light-text dark:text-dark-text">
+    <div className="flex flex-col h-full bg-white dark:bg-[#0a0a0a] overflow-hidden text-light-text dark:text-dark-text">
 
       {/* ── Global Header ── */}
-      <div className="flex-none flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#111]">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-[#1B7A6E]/10 flex items-center justify-center rounded-sm">
-            <Activity size={16} className="text-[#1B7A6E]" />
+      <div className="flex-none flex flex-wrap items-center justify-between gap-3 px-4 py-2 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#111]">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-[#1B7A6E]/10 flex items-center justify-center rounded-sm">
+            <Activity size={14} className="text-[#1B7A6E]" />
           </div>
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-widest leading-tight">Sensor Telemetry</h2>
-            <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
+            <h2 className="text-xs font-bold uppercase tracking-widest leading-tight">Data & Analysis</h2>
+            <span className="text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
               {deviceId}{ownerName ? ` · ${ownerName}` : ''}
             </span>
           </div>
@@ -312,7 +312,7 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
 
       {/* ── Session Info Bar ── */}
       {selectedSession && (
-        <div className="flex-none flex items-center gap-4 px-4 py-2 bg-[#1B7A6E]/5 border-b border-[#1B7A6E]/20 text-[10px] font-bold uppercase tracking-widest text-[#1B7A6E]">
+        <div className="flex-none flex items-center gap-4 px-4 py-1.5 bg-[#1B7A6E]/5 border-b border-[#1B7A6E]/20 text-[9px] font-bold uppercase tracking-widest text-[#1B7A6E]">
           <span className="flex items-center gap-1.5"><Calendar size={10} /> {new Date(selectedSession.startTime).toLocaleDateString()}</span>
           <span className="flex items-center gap-1.5"><Clock size={10} /> {formatDuration(selectedSession.durationMs)} recording</span>
           <span className="flex items-center gap-1.5"><Database size={10} /> {selectedSession.sampleCount.toLocaleString()} samples → {packetCount.toLocaleString()} displayed</span>
@@ -321,25 +321,6 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
           )}
         </div>
       )}
-
-      {/* ── Stats Bar ── */}
-      <div className="flex-none grid grid-cols-6 border-b border-gray-200 dark:border-[#262626] bg-white dark:bg-[#111]">
-        {[
-          { label: 'ACCEL X', value: latestData.accelX, unit: 'mg',  color: '#1B7A6E' },
-          { label: 'ACCEL Y', value: latestData.accelY, unit: 'mg',  color: '#D99B3F' },
-          { label: 'ACCEL Z', value: latestData.accelZ, unit: 'mg',  color: '#C4453D' },
-          { label: 'ECG CH1', value: latestData.ecg1,   unit: 'mV',  color: '#1B7A6E' },
-          { label: 'ECG CH2', value: latestData.ecg2,   unit: 'mV',  color: '#7C8A94' },
-          { label: '|Mag|',   value: latestData.magnitude, unit: 'mg', color: '#6366f1' },
-        ].map((m, i) => (
-          <div key={m.label} className={`flex flex-col p-3 ${i < 5 ? 'border-r border-gray-200 dark:border-[#262626]' : ''}`}>
-            <div className="h-0.5 w-full rounded-full mb-2 opacity-60" style={{ backgroundColor: m.color }} />
-            <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.label}</span>
-            <span className="text-base font-bold font-mono tracking-tight my-0.5">{m.value.toFixed(2)}</span>
-            <span className="text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.unit}</span>
-          </div>
-        ))}
-      </div>
 
       {/* ── Empty State ── */}
       {connectionStatus === 'LOADING' && (
@@ -364,6 +345,27 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
       {/* ── Hero Chart Sections ── */}
       {data.length > 0 && (
         <div className="flex-1 overflow-y-auto">
+
+          {/* ── Latest Readings (moved from header) ── */}
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#050505]">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-3">Latest Readings</h3>
+            <div className="flex flex-wrap gap-8">
+              {[
+                { label: 'ACCEL X', value: latestData.accelX, unit: 'mg',  color: '#1B7A6E' },
+                { label: 'ACCEL Y', value: latestData.accelY, unit: 'mg',  color: '#D99B3F' },
+                { label: 'ACCEL Z', value: latestData.accelZ, unit: 'mg',  color: '#C4453D' },
+                { label: 'ECG CH1', value: latestData.ecg1,   unit: 'mV',  color: '#22c55e' },
+                { label: 'ECG CH2', value: latestData.ecg2,   unit: 'mV',  color: '#3b82f6' },
+                { label: '|Mag|',   value: latestData.magnitude, unit: 'mg', color: '#6366f1' },
+              ].map((m) => (
+                <div key={m.label} className="flex flex-col">
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.label}</span>
+                  <span className="text-lg font-bold font-mono tracking-tight" style={{ color: m.color }}>{m.value.toFixed(2)}</span>
+                  <span className="text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.unit}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* 1. Accelerometer */}
           <ChartHero
@@ -402,26 +404,27 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
           {/* 3. ECG Channel 1 */}
           <ChartHero
             title="ECG Channel 1" tag="Lead I — mV"
-            accentColor="#1B7A6E" data={data}
+            accentColor="#22c55e" data={data}
             yKeys={['ecg1']} defaultYDomain={[-2, 2]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#1B7A6E]" /> CH1</span>}
+            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#22c55e]" /> CH1</span>}
           >
             {() => (
-              <Line type="monotone" dataKey="ecg1" name="ECG CH1 (mV)" stroke="#1B7A6E" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
+              <Line type="monotone" dataKey="ecg1" name="ECG CH1 (mV)" stroke="#22c55e" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
             )}
           </ChartHero>
 
           {/* 4. ECG Channel 2 */}
           <ChartHero
             title="ECG Channel 2" tag="Lead II — mV"
-            accentColor="#7C8A94" data={data}
+            accentColor="#3b82f6" data={data}
             yKeys={['ecg2']} defaultYDomain={[-2, 2]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#7C8A94]" /> CH2</span>}
+            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#3b82f6]" /> CH2</span>}
           >
             {() => (
-              <Line type="monotone" dataKey="ecg2" name="ECG CH2 (mV)" stroke="#7C8A94" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
+              <Line type="monotone" dataKey="ecg2" name="ECG CH2 (mV)" stroke="#3b82f6" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
             )}
           </ChartHero>
+
 
         </div>
       )}

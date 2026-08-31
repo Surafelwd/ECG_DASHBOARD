@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+@import 'leaflet/dist/leaflet.css';
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -28,5 +29,36 @@
   }
   .dark body {
     @apply bg-dark-bg text-dark-text;
+  }
+}
+
+@layer utilities {
+  .bg-mesh-dark {
+    background-color: #050505;
+    background-image: radial-gradient(at 0% 0%, hsla(167, 63%, 29%, 0.1) 0px, transparent 50%),
+                      radial-gradient(at 100% 100%, hsla(240, 100%, 70%, 0.05) 0px, transparent 50%);
+  }
+  
+  .card-3d {
+    @apply bg-white dark:bg-[#121212] shadow-xl dark:shadow-black/60 rounded-xl border border-gray-200 dark:border-[#2a2a2a] relative overflow-hidden;
+  }
+  .card-3d::after {
+    content: '';
+    @apply absolute inset-0 rounded-xl pointer-events-none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  }
+  .dark .card-3d::after {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .btn-3d {
+    @apply relative transition-all duration-100 ease-in-out hover:-translate-y-[2px] active:translate-y-[2px] shadow-md hover:shadow-lg active:shadow-sm;
+  }
+  .btn-3d::after {
+    content: '';
+    @apply absolute inset-0 rounded-[inherit] pointer-events-none border-b-4 border-black/20;
+  }
+  .btn-3d:active::after {
+    @apply border-b-0;
   }
 }

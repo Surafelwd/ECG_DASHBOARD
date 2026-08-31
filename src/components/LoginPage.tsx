@@ -31,23 +31,23 @@ export default function LoginPage({
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-light-bg dark:bg-dark-bg transition-colors duration-300">
-      {/* Theme Toggle Top Right */}
-      <div className="absolute top-4 right-4 md:top-8 md:right-8">
+    <div className="relative min-h-screen w-full overflow-hidden bg-light-bg px-4 py-8 transition-colors duration-300 dark:bg-dark-bg">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(30,211,166,0.2),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(88,136,255,0.18),transparent_30%)]" />
+
+      <div className="absolute top-4 right-4 md:top-8 md:right-8 z-20">
         <button 
           onClick={toggleTheme} 
           aria-label="Toggle dark mode"
-          className="flex items-center space-x-3 bg-light-card dark:bg-dark-card border border-gray-300 dark:border-dark-border rounded-md px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-bg text-light-text-secondary dark:text-dark-text-secondary"
+          className="flex items-center space-x-3 rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-600 shadow-sm backdrop-blur-xl transition hover:border-[#1ed3a6]/30 hover:bg-[#eefaf6] focus-visible:ring-2 focus-visible:ring-brand-primary dark:border-[#1f3b35] dark:bg-[#112824]/80 dark:text-[#ccefe4] dark:hover:border-[#1ed3a6]/30 dark:hover:bg-[#12352f]"
         >
-          <span className="text-xs font-semibold uppercase tracking-wider hidden sm:inline-block">
+          <span className="hidden text-[10px] font-bold uppercase tracking-[0.2em] sm:inline-block">
             {theme === 'light' ? 'DARK MODE' : 'LIGHT MODE'}
           </span>
           {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         </button>
       </div>
 
-      {/* Card */}
-      <div className="w-full max-w-[420px] relative bg-light-card dark:bg-dark-card rounded-sm shadow-[0_4px_16px_rgba(0,0,0,0.08)] dark:shadow-none border border-gray-300 dark:border-dark-border overflow-hidden flex flex-col">
+      <div className="relative z-10 mx-auto flex w-full max-w-[440px] flex-col overflow-hidden rounded-[28px] border border-white/60 bg-white/75 shadow-[0_30px_90px_rgba(16,31,28,0.15)] backdrop-blur-xl dark:border-[#1f3b35] dark:bg-[#0d1f1b]/80 dark:shadow-[0_32px_80px_rgba(0,0,0,0.42)]">
         
         {/* Banners (Edge-to-edge at top) */}
         {errorState === 'locked' && (
@@ -63,12 +63,13 @@ export default function LoginPage({
           </div>
         )}
 
-        <div className="p-10 pb-12">
-          {/* Header */}
+        <div className="p-8 pb-12 sm:p-10">
           <div className="mb-8">
-            <div className="flex items-center mb-2">
-                <Activity className="text-brand-primary mr-2" size={24} />
-                <h1 className="text-xl font-bold text-light-text dark:text-dark-text uppercase tracking-tight">Pulse Monitoring</h1>
+            <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#1ed3a6]/12 text-[#0f8d73] ring-1 ring-[#1ed3a6]/20 dark:bg-[#1ed3a6]/10 dark:text-[#7af7c4] dark:ring-[#1ed3a6]/20">
+                  <Activity className="" size={22} />
+                </div>
+                <h1 className="text-2xl font-black uppercase tracking-tight text-light-text dark:text-dark-text">Pulse Monitoring</h1>
             </div>
             <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary">Enter your credentials to manage the device fleet.</p>
           </div>
@@ -85,7 +86,7 @@ export default function LoginPage({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={errorState === 'locked' || isLoading}
-                  className={`w-full px-4 py-3 bg-light-bg dark:bg-dark-bg border border-gray-300 dark:border-dark-border rounded-sm text-sm text-light-text dark:text-dark-text placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:ring-2 focus:ring-brand-primary focus:border-transparent transition-shadow disabled:opacity-50`}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-light-text outline-none transition focus:border-[#1ed3a6] focus:ring-4 focus:ring-[#1ed3a6]/15 dark:border-[#1f3b35] dark:bg-[#0b1715] dark:text-dark-text disabled:opacity-50"
                   placeholder="Enter your email"
                 />
               </div>
@@ -101,7 +102,7 @@ export default function LoginPage({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={errorState === 'locked' || isLoading}
-                    className={`w-full px-4 py-3 bg-light-bg dark:bg-dark-bg border ${errorState === 'invalid' ? 'border-brand-error focus:ring-brand-error' : 'border-gray-300 dark:border-dark-border focus:ring-brand-primary'} rounded-sm text-sm text-light-text dark:text-dark-text placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:ring-2 focus:border-transparent transition-shadow disabled:opacity-50 pr-10`}
+                    className={`w-full rounded-2xl border bg-slate-50/80 px-4 py-3 pr-10 text-sm text-light-text outline-none transition focus:border-[#1ed3a6] focus:ring-4 focus:ring-[#1ed3a6]/15 dark:bg-[#0b1715] dark:text-dark-text ${errorState === 'invalid' ? 'border-brand-error focus:ring-brand-error/20' : 'border-slate-200 dark:border-[#1f3b35]'} disabled:opacity-50`}
                     placeholder="Enter your password"
                   />
                   <button 
@@ -141,7 +142,7 @@ export default function LoginPage({
               <button 
                 type="submit"
                 disabled={errorState === 'locked' || isLoading || !email || !password}
-                className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-bold py-3.5 rounded-sm uppercase tracking-widest text-xs mt-4 outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
+                className="mt-4 flex w-full cursor-pointer items-center justify-center rounded-2xl bg-gradient-to-r from-[#1ed3a6] to-[#0f8d73] py-3.5 text-xs font-black uppercase tracking-[0.2em] text-white shadow-[0_16px_35px_rgba(30,211,166,0.32)] outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-[#1ed3a6] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-[#0d1f1b]"
               >
                 {isLoading ? (
                   <motion.div 

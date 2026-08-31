@@ -336,21 +336,23 @@ export default function SignUpPage({
   );
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-light-bg dark:bg-dark-bg transition-colors duration-300">
-      <div className="absolute top-4 right-4 md:top-8 md:right-8">
+    <div className="relative min-h-screen w-full overflow-hidden bg-light-bg px-4 py-8 transition-colors duration-300 dark:bg-dark-bg">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(30,211,166,0.2),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(88,136,255,0.18),transparent_30%)]" />
+
+      <div className="absolute top-4 right-4 z-20 md:top-8 md:right-8">
         <button 
           onClick={toggleTheme} 
           aria-label="Toggle dark mode"
-          className="flex items-center space-x-3 bg-light-card dark:bg-dark-card border border-gray-300 dark:border-dark-border rounded-md px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-bg text-light-text-secondary dark:text-dark-text-secondary"
+          className="flex items-center space-x-3 rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-600 shadow-sm backdrop-blur-xl transition hover:border-[#1ed3a6]/30 hover:bg-[#eefaf6] focus-visible:ring-2 focus-visible:ring-brand-primary dark:border-[#1f3b35] dark:bg-[#112824]/80 dark:text-[#ccefe4] dark:hover:border-[#1ed3a6]/30 dark:hover:bg-[#12352f]"
         >
-          <span className="text-xs font-semibold uppercase tracking-wider hidden sm:inline-block">
+          <span className="hidden text-[10px] font-bold uppercase tracking-[0.2em] sm:inline-block">
             {theme === 'light' ? 'DARK MODE' : 'LIGHT MODE'}
           </span>
           {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         </button>
       </div>
 
-      <div className="w-full max-w-[480px] relative bg-light-card dark:bg-dark-card rounded-sm shadow-[0_4px_16px_rgba(0,0,0,0.08)] dark:shadow-none border border-gray-300 dark:border-dark-border overflow-hidden flex flex-col">
+      <div className="relative z-10 mx-auto flex w-full max-w-[500px] flex-col overflow-hidden rounded-[28px] border border-white/60 bg-white/75 shadow-[0_30px_90px_rgba(16,31,28,0.15)] backdrop-blur-xl dark:border-[#1f3b35] dark:bg-[#0d1f1b]/80 dark:shadow-[0_32px_80px_rgba(0,0,0,0.42)]">
         
         {duplicateEmailError && (
           <div className="bg-brand-error text-white py-2.5 px-4 text-xs font-bold flex items-center justify-center uppercase tracking-widest text-center z-10">
@@ -359,12 +361,14 @@ export default function SignUpPage({
           </div>
         )}
 
-        <div className="p-8 sm:p-10 pb-12 relative z-10">
+        <div className="relative z-10 p-8 pb-12 sm:p-10">
           {step !== 3 && (
             <div className="mb-8">
-              <div className="flex items-center mb-2">
-                  <Activity className="text-brand-primary mr-2" size={24} />
-                  <h1 className="text-xl font-bold text-light-text dark:text-dark-text uppercase tracking-tight">Pulse Monitoring</h1>
+              <div className="mb-3 flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#1ed3a6]/12 text-[#0f8d73] ring-1 ring-[#1ed3a6]/20 dark:bg-[#1ed3a6]/10 dark:text-[#7af7c4] dark:ring-[#1ed3a6]/20">
+                    <Activity size={22} />
+                  </div>
+                  <h1 className="text-2xl font-black uppercase tracking-tight text-light-text dark:text-dark-text">Pulse Monitoring</h1>
               </div>
               <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary">
                 {step === 1 ? 'Create your account to manage the device fleet.' : 'Select your authorization role.'}
@@ -386,7 +390,7 @@ export default function SignUpPage({
               <button 
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-brand-primary hover:bg-brand-primary-hover text-white font-bold py-3.5 rounded-sm uppercase tracking-widest text-xs mt-8 outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-card transition-colors disabled:opacity-50 flex items-center justify-center cursor-pointer"
+                className="mt-8 flex w-full cursor-pointer items-center justify-center rounded-2xl bg-gradient-to-r from-[#1ed3a6] to-[#0f8d73] py-3.5 text-xs font-black uppercase tracking-[0.2em] text-white shadow-[0_16px_35px_rgba(30,211,166,0.32)] outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-[#1ed3a6] focus-visible:ring-offset-2 disabled:opacity-50 dark:focus-visible:ring-offset-[#0d1f1b]"
               >
                 {isLoading ? (
                   <motion.div 
