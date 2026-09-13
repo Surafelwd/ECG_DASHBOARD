@@ -1,27 +1,28 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { ecgCh2CountsToMv } from '../lib/telemetry-contract.mjs';
 
 export interface TelemetryPoint {
-  time: number;
-  accelX: number;
-  accelY: number;
-  accelZ: number;
-  ecg1: number;
-  ecg2: number;
-  magnitude: number;
+  timeMs: number;
+  elapsedSeconds: number;
+  accelXMg: number;
+  accelYMg: number;
+  accelZMg: number;
+  magnitudeMg: number;
+  dynamicMotionMg: number;
+  ecgCh1Count: number;
+  ecgCh2Count: number;
+  ecgCh2Mv: number;
 }
 
 export interface SessionMeta {
   sessionId: string;
   startTime: string;
   endTime: string;
+  receivedAt: string;
   sampleCount: number;
   durationMs: number;
-}
-
-export interface LogEntry {
-  id: string;
-  timestamp: string;
-  message: string;
+  sampleRateHz: number | null;
+  timeBasis: 'estimated-from-upload';
 }
 
 export function useTelemetryStream(deviceId: string) {
@@ -29,61 +30,91 @@ export function useTelemetryStream(deviceId: string) {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'LOADED' | 'LOADING' | 'ERROR'>('LOADING');
-  const [packetCount, setPacketCount] = useState(0);
+  const [refreshSequence, setRefreshSequence] = useState(0);
 
-  // Fetch available sessions for this device
   useEffect(() => {
-    if (!deviceId) return;
-    fetch(`/api/sessions/${deviceId}`)
-      .then(r => r.ok ? r.json() : [])
-      .then((s: SessionMeta[]) => {
-        setSessions(s);
-        // Auto-select the most recent session
-        if (s.length > 0 && !selectedSessionId) {
-          setSelectedSessionId(s[0].sessionId);
-        }
-      })
-      .catch(() => setSessions([]));
+    setSelectedSessionId(null);
+    setData([]);
   }, [deviceId]);
 
-  // Fetch telemetry data when session changes
   useEffect(() => {
     if (!deviceId) return;
+    let cancelled = false;
 
-    const url = selectedSessionId
-      ? `/api/telemetry/${deviceId}?sessionId=${encodeURIComponent(selectedSessionId)}`
-      : `/api/telemetry/${deviceId}`;
+    const loadSessions = async () => {
+      try {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(deviceId)}`);
+        if (!response.ok) throw new Error('Unable to load recordings');
+        const result: SessionMeta[] = await response.json();
+        if (cancelled) return;
+        setSessions(result);
+        setSelectedSessionId((current) => current && result.some((session) => session.sessionId === current)
+          ? current
+          : result[0]?.sessionId || null);
+      } catch {
+        if (!cancelled) {
+          setSessions([]);
+          setConnectionStatus('ERROR');
+        }
+      }
+    };
 
+    loadSessions();
+    const timer = window.setInterval(loadSessions, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [deviceId, refreshSequence]);
+
+  useEffect(() => {
+    if (!deviceId || !selectedSessionId) {
+      setData([]);
+      setConnectionStatus('LOADED');
+      return;
+    }
+
+    const controller = new AbortController();
     setConnectionStatus('LOADING');
-    setData([]);
-
-    fetch(url)
-      .then(r => { if (!r.ok) throw new Error('Network error'); return r.json(); })
+    fetch(`/api/telemetry/${encodeURIComponent(deviceId)}?sessionId=${encodeURIComponent(selectedSessionId)}`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error('Unable to load recording');
+        return response.json();
+      })
       .then((telemetry: any[]) => {
-        const mappedData = telemetry.map((t: any) => ({
-          time: new Date(t.time).getTime(),
-          accelX: t.accel_x || 0,
-          accelY: t.accel_y || 0,
-          accelZ: t.accel_z || 0,
-          ecg1: t.ecg_ch1 || 0,
-          ecg2: t.ecg_ch2 || 0,
-          magnitude: Math.sqrt(
-            Math.pow(t.accel_x || 0, 2) +
-            Math.pow(t.accel_y || 0, 2) +
-            Math.pow(t.accel_z || 0, 2)
-          ),
-        }));
-        setData(mappedData);
-        setPacketCount(mappedData.length);
+        const firstTime = telemetry.length > 0 ? new Date(telemetry[0].time).getTime() : 0;
+        const mapped = telemetry.map((reading) => {
+          const timeMs = new Date(reading.time).getTime();
+          const accelXMg = Number(reading.accel_x ?? 0);
+          const accelYMg = Number(reading.accel_y ?? 0);
+          const accelZMg = Number(reading.accel_z ?? 0);
+          const ecgCh1Count = Number(reading.ecg_ch1 ?? 0);
+          const ecgCh2Count = Number(reading.ecg_ch2 ?? 0);
+          const magnitudeMg = Math.sqrt(accelXMg ** 2 + accelYMg ** 2 + accelZMg ** 2);
+          return {
+            timeMs,
+            elapsedSeconds: (timeMs - firstTime) / 1000,
+            accelXMg,
+            accelYMg,
+            accelZMg,
+            magnitudeMg,
+            dynamicMotionMg: Math.abs(magnitudeMg - 1000),
+            ecgCh1Count,
+            ecgCh2Count,
+            ecgCh2Mv: ecgCh2CountsToMv(ecgCh2Count),
+          };
+        });
+        setData(mapped);
         setConnectionStatus('LOADED');
       })
-      .catch(() => setConnectionStatus('ERROR'));
-  }, [deviceId, selectedSessionId]);
+      .catch((error) => {
+        if (error.name !== 'AbortError') setConnectionStatus('ERROR');
+      });
 
-  const clearBuffers = useCallback(() => {
-    setData([]);
-    setPacketCount(0);
-  }, []);
+    return () => controller.abort();
+  }, [deviceId, selectedSessionId, refreshSequence]);
+
+  const refresh = useCallback(() => setRefreshSequence((value) => value + 1), []);
 
   return {
     data,
@@ -91,9 +122,6 @@ export function useTelemetryStream(deviceId: string) {
     selectedSessionId,
     setSelectedSessionId,
     connectionStatus,
-    packetCount,
-    clearBuffers,
-    // legacy compatibility
-    logs: [] as LogEntry[],
+    refresh,
   };
 }

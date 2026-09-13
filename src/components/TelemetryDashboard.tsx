@@ -1,253 +1,81 @@
-import React, { useRef, useCallback, useEffect } from 'react';
-import { Activity, RotateCcw, ZoomIn, ChevronDown, Clock, Database, Calendar } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Activity, ChevronDown, Clock3, Database, RefreshCw, ShieldCheck } from 'lucide-react';
 import {
-  LineChart,
+  Brush,
+  CartesianGrid,
   Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  ResponsiveContainer,
-  Brush,
-  Tooltip as RechartsTooltip,
 } from 'recharts';
-import { useTelemetryStream, SessionMeta } from '../hooks/useTelemetryStream';
-export type { TelemetryPoint, LogEntry } from '../hooks/useTelemetryStream';
+import { ECG_CH2_MV_PER_COUNT, EXPECTED_V1_SAMPLE_COUNT } from '../lib/telemetry-contract.mjs';
+import { useTelemetryStream, type SessionMeta, type TelemetryPoint } from '../hooks/useTelemetryStream';
 
-// --- Types ---
-export interface TelemetryDashboardProps {
+interface Props {
   deviceId: string;
   ownerName?: string;
-  context: 'device-detail' | 'command-center';
 }
 
-// --- Helpers ---
-function formatDuration(ms: number): string {
-  if (!ms || ms <= 0) return '—';
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+interface Trace {
+  key: keyof TelemetryPoint;
+  name: string;
+  color: string;
+  type?: 'linear' | 'stepAfter';
 }
 
-function formatSessionLabel(s: SessionMeta): string {
-  const d = new Date(s.startTime);
-  return d.toLocaleString([], {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+function formatRecordingDuration(milliseconds: number) {
+  return `${(milliseconds / 1000).toFixed(2)} s`;
+}
+
+function formatRecordingLabel(session: SessionMeta) {
+  return new Date(session.receivedAt || session.endTime).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
-// --- ChartHero ---
-interface ChartHeroProps {
-  title: string;
-  tag: string;
-  accentColor: string;
-  data: any[];
-  yKeys: string[];
-  defaultYDomain: [number, number];
-  legend?: React.ReactNode;
-  children: () => React.ReactNode;
-}
-
-function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legend, children }: ChartHeroProps) {
-  const [brushRange, setBrushRange] = React.useState<[number, number]>([0, Math.max(0, data.length - 1)]);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setBrushRange([0, Math.max(0, data.length - 1)]);
-  }, [data.length]);
-
-  const visibleData = data.length > 0 ? data.slice(brushRange[0], brushRange[1] + 1) : [];
-
-  // Auto-scale Y based on visible window
-  const yDomain: [number, number] = React.useMemo(() => {
-    if (visibleData.length === 0) return defaultYDomain;
-    let min = Infinity, max = -Infinity;
-    visibleData.forEach(d => {
-      yKeys.forEach(key => {
-        const v = d[key] ?? 0;
-        if (v < min) min = v;
-        if (v > max) max = v;
-      });
-    });
-    if (!isFinite(min) || min === max) return defaultYDomain;
-    const pad = Math.abs(max - min) * 0.12;
-    return [min - pad, max + pad];
-  }, [visibleData, yKeys, defaultYDomain]);
-
-  // Mouse-wheel zoom
-  const handleWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
-    if (data.length < 2) return;
-    const [start, end] = brushRange;
-    const span = end - start;
-    const center = Math.round((start + end) / 2);
-    const factor = e.deltaY < 0 ? 0.7 : 1.3;
-    const newSpan = Math.max(1, Math.min(data.length - 1, Math.round(span * factor)));
-    const half = Math.round(newSpan / 2);
-    const newStart = Math.max(0, center - half);
-    const newEnd = Math.min(data.length - 1, newStart + newSpan);
-    setBrushRange([newStart, newEnd]);
-  }, [brushRange, data.length]);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, [handleWheel]);
-
-  const resetZoom = () => setBrushRange([0, Math.max(0, data.length - 1)]);
-
-  return (
-    <div className="border-b border-gray-200 dark:border-[#262626]">
-      {/* Hero Header */}
-      <div className="flex items-center justify-between px-6 pt-5 pb-2">
-        <div className="flex items-center gap-3">
-          <div className="w-1 h-8 rounded-full" style={{ backgroundColor: accentColor }} />
-          <div>
-            <h3 className="text-sm font-bold uppercase tracking-widest">{title}</h3>
-            <span className="text-[10px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{tag}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {legend}
-          <button
-            onClick={resetZoom}
-            className="flex items-center gap-1 px-2.5 py-1 border border-gray-200 dark:border-[#333] rounded-sm text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] hover:text-[#1B7A6E] hover:border-[#1B7A6E] transition-colors"
-          >
-            <RotateCcw size={9} /> Reset
-          </button>
-          <span className="hidden sm:flex items-center gap-1 text-[9px] text-light-text-secondary dark:text-[#555] uppercase tracking-widest">
-            <ZoomIn size={9} /> scroll to zoom
-          </span>
-        </div>
-      </div>
-
-      {/* Chart */}
-      <div ref={containerRef} className="px-2 pb-0" style={{ cursor: 'crosshair' }}>
-        <div className="h-80 md:h-96">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={visibleData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} opacity={0.15} />
-              <XAxis
-                dataKey="time"
-                type="number"
-                domain={['dataMin', 'dataMax']}
-                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                tick={{ fontSize: 9, fill: '#9A9A9A' }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                domain={yDomain}
-                tick={{ fontSize: 10, fill: '#9A9A9A' }}
-                axisLine={false}
-                tickLine={false}
-                width={46}
-                tickFormatter={(v: number) => v.toFixed(1)}
-              />
-              <RechartsTooltip
-                labelFormatter={(label) => new Date(label).toLocaleTimeString()}
-                contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#333', borderRadius: '4px', fontSize: '11px', color: '#F2F2F2' }}
-                itemStyle={{ fontWeight: 'bold' }}
-              />
-              {children()}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Full-width Brush (overview slider) */}
-        <div className="h-10">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
-              <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} hide />
-              {yKeys.map(key => (
-                <Line key={key} type="monotone" dataKey={key} stroke="#444" strokeWidth={0.5} dot={false} isAnimationActive={false} />
-              ))}
-              <Brush
-                dataKey="time"
-                height={26}
-                stroke={accentColor}
-                fill="#111"
-                travellerWidth={6}
-                tickFormatter={() => ''}
-                startIndex={brushRange[0]}
-                endIndex={brushRange[1]}
-                onChange={(e) => {
-                  if (e.startIndex !== undefined && e.endIndex !== undefined) {
-                    setBrushRange([e.startIndex, e.endIndex]);
-                  }
-                }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// --- Session Picker ---
-function SessionPicker({ sessions, selectedSessionId, onSelect }: {
+function SessionPicker({ sessions, selectedId, onSelect }: {
   sessions: SessionMeta[];
-  selectedSessionId: string | null;
-  onSelect: (id: string) => void;
+  selectedId: string | null;
+  onSelect: (sessionId: string) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const selected = sessions.find(s => s.sessionId === selectedSessionId);
+  const [open, setOpen] = useState(false);
+  const selected = sessions.find((session) => session.sessionId === selectedId);
 
-  if (sessions.length === 0) {
-    return (
-      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
-        <Database size={12} /> No sessions found
-      </div>
-    );
-  }
+  if (sessions.length === 0) return <span className="text-xs text-black/45 dark:text-white/45">No recordings received</span>;
 
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#333] rounded-sm text-[10px] font-bold uppercase tracking-widest text-light-text dark:text-[#F2F2F2] hover:border-[#1B7A6E] transition-colors"
+        onClick={() => setOpen((value) => !value)}
+        className="flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-xs font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
       >
-        <Calendar size={11} className="text-[#1B7A6E]" />
-        {selected ? formatSessionLabel(selected) : 'Select Session'}
-        <span className="ml-1 px-1.5 py-0.5 bg-[#1B7A6E]/10 text-[#1B7A6E] rounded-sm text-[8px]">
-          {selected ? `${selected.sampleCount.toLocaleString()} pts` : ''}
-        </span>
-        <ChevronDown size={11} className={`ml-1 text-[#9A9A9A] transition-transform ${open ? 'rotate-180' : ''}`} />
+        <Database size={13} className="text-[#1B7A6E]" />
+        {selected ? formatRecordingLabel(selected) : 'Select recording'}
+        <ChevronDown size={13} className="text-black/40 dark:text-white/40" />
       </button>
-
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-[#121212] border border-gray-200 dark:border-[#262626] rounded-sm shadow-xl z-50 overflow-hidden">
-            <div className="px-3 py-2 border-b border-gray-100 dark:border-[#1a1a1a] text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
-              {sessions.length} Session{sessions.length !== 1 ? 's' : ''} Available
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-              {sessions.map(s => (
-                <button
-                  key={s.sessionId}
-                  onClick={() => { onSelect(s.sessionId); setOpen(false); }}
-                  className={`w-full text-left px-3 py-2.5 border-b border-gray-50 dark:border-[#1a1a1a] transition-colors hover:bg-gray-50 dark:hover:bg-[#1a1a1a] ${
-                    s.sessionId === selectedSessionId ? 'bg-[#1B7A6E]/5 border-l-2 border-l-[#1B7A6E]' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-light-text dark:text-[#F2F2F2]">{formatSessionLabel(s)}</span>
-                    <span className="text-[9px] font-bold text-[#1B7A6E]">{s.sampleCount.toLocaleString()} pts</span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-0.5 text-[9px] text-light-text-secondary dark:text-[#9A9A9A]">
-                    <span className="flex items-center gap-1"><Clock size={9} /> {formatDuration(s.durationMs)}</span>
-                    <span>{new Date(s.startTime).toLocaleDateString()}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
+          <button className="fixed inset-0 z-30 cursor-default" aria-label="Close recording menu" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-40 mt-2 max-h-80 w-80 overflow-y-auto rounded-xl border border-black/10 bg-white p-1 shadow-2xl dark:border-white/10 dark:bg-[#121817]">
+            {sessions.map((session, index) => (
+              <button
+                key={session.sessionId}
+                onClick={() => { onSelect(session.sessionId); setOpen(false); }}
+                className={`w-full rounded-lg px-3 py-3 text-left hover:bg-black/[0.035] dark:hover:bg-white/[0.05] ${session.sessionId === selectedId ? 'bg-[#1B7A6E]/8' : ''}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold">{index === 0 ? 'Latest · ' : ''}{formatRecordingLabel(session)}</span>
+                  <span className="text-[10px] tabular-nums text-black/45 dark:text-white/45">{session.sampleCount.toLocaleString()}</span>
+                </div>
+                <p className="mt-1 text-[10px] text-black/40 dark:text-white/40">Received by server · capture time estimated</p>
+              </button>
+            ))}
           </div>
         </>
       )}
@@ -255,179 +83,208 @@ function SessionPicker({ sessions, selectedSessionId, onSelect }: {
   );
 }
 
-// --- Main Component ---
-export default function TelemetryDashboard({ deviceId, ownerName, context }: TelemetryDashboardProps) {
-  const { data, sessions, selectedSessionId, setSelectedSessionId, connectionStatus, packetCount, clearBuffers } = useTelemetryStream(deviceId);
-
-  const latestData = data[data.length - 1] || { accelX: 0, accelY: 0, accelZ: 0, ecg1: 0, ecg2: 0, magnitude: 0 };
-
-  const selectedSession = sessions.find(s => s.sessionId === selectedSessionId);
-
+function Metric({ label, value, note }: { label: string; value: string; note: string }) {
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-[#0a0a0a] overflow-hidden text-light-text dark:text-dark-text">
+    <div className="rounded-xl border border-black/8 bg-white px-4 py-3 dark:border-white/8 dark:bg-white/[0.035]">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-black/40 dark:text-white/40">{label}</p>
+      <p className="mt-2 font-mono text-lg font-semibold text-[#1B7A6E] dark:text-[#55c8b7]">{value}</p>
+      <p className="mt-1 text-[10px] text-black/40 dark:text-white/40">{note}</p>
+    </div>
+  );
+}
 
-      {/* ── Global Header ── */}
-      <div className="flex-none flex flex-wrap items-center justify-between gap-3 px-4 py-2 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#111]">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-[#1B7A6E]/10 flex items-center justify-center rounded-sm">
-            <Activity size={14} className="text-[#1B7A6E]" />
-          </div>
-          <div>
-            <h2 className="text-xs font-bold uppercase tracking-widest leading-tight">Data & Analysis</h2>
-            <span className="text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
-              {deviceId}{ownerName ? ` · ${ownerName}` : ''}
-            </span>
-          </div>
+function TraceChart({ title, subtitle, data, traces, unit, footer }: {
+  title: string;
+  subtitle: string;
+  data: TelemetryPoint[];
+  traces: Trace[];
+  unit: string;
+  footer?: ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.035]">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-black/8 px-5 py-4 dark:border-white/8">
+        <div>
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <p className="mt-1 text-xs text-black/45 dark:text-white/45">{subtitle}</p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Session Picker */}
-          <SessionPicker
-            sessions={sessions}
-            selectedSessionId={selectedSessionId}
-            onSelect={setSelectedSessionId}
-          />
-
-          {/* Status */}
-          <div className={`flex items-center px-2 py-1 rounded-full border text-[10px] font-bold uppercase tracking-widest ${
-            connectionStatus === 'LOADED' ? 'border-[#1B7A6E]/30 text-[#1B7A6E] bg-[#1B7A6E]/5' :
-            connectionStatus === 'LOADING' ? 'border-[#D99B3F]/30 text-[#D99B3F] bg-[#D99B3F]/5' :
-            'border-[#C4453D]/30 text-[#C4453D] bg-[#C4453D]/5'
-          }`}>
-            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-              connectionStatus === 'LOADED' ? 'bg-[#1B7A6E]' :
-              connectionStatus === 'LOADING' ? 'bg-[#D99B3F] animate-pulse' : 'bg-[#C4453D]'
-            }`} />
-            {connectionStatus}
-          </div>
-
-          <button
-            onClick={clearBuffers}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-[#333] hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors"
-          >
-            <RotateCcw size={12} /> Clear
-          </button>
+        <div className="flex flex-wrap gap-3">
+          {traces.map((trace) => (
+            <span key={String(trace.key)} className="flex items-center gap-1.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
+              <span className="h-0.5 w-3" style={{ backgroundColor: trace.color }} /> {trace.name}
+            </span>
+          ))}
         </div>
       </div>
+      <div className="h-80 px-2 pt-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 16, left: 0, bottom: 14 }}>
+            <CartesianGrid strokeDasharray="3 5" vertical={false} opacity={0.18} />
+            <XAxis
+              dataKey="elapsedSeconds"
+              type="number"
+              domain={['dataMin', 'dataMax']}
+              tickFormatter={(value) => Number(value).toFixed(1)}
+              tick={{ fontSize: 10, fill: '#7a8582' }}
+              label={{ value: 'Elapsed time (s)', position: 'insideBottom', offset: -8, fontSize: 10, fill: '#7a8582' }}
+            />
+            <YAxis
+              width={58}
+              tick={{ fontSize: 10, fill: '#7a8582' }}
+              tickFormatter={(value) => Number(value).toFixed(unit === 'mV' ? 2 : 0)}
+              label={{ value: unit, angle: -90, position: 'insideLeft', fontSize: 10, fill: '#7a8582' }}
+            />
+            <Tooltip
+              labelFormatter={(value) => `${Number(value).toFixed(3)} s elapsed`}
+              formatter={(value: number, name: string) => [`${Number(value).toFixed(unit === 'mV' ? 4 : 1)} ${unit}`, name]}
+              contentStyle={{ background: '#101615', border: '1px solid #28312f', borderRadius: 10, color: '#f1f7f5', fontSize: 11 }}
+            />
+            {traces.map((trace) => (
+              <Line
+                key={String(trace.key)}
+                type={trace.type || 'linear'}
+                dataKey={trace.key}
+                name={trace.name}
+                stroke={trace.color}
+                strokeWidth={trace.key === 'ecgCh2Mv' ? 1.8 : 1.25}
+                dot={false}
+                isAnimationActive={false}
+              />
+            ))}
+            <Brush dataKey="elapsedSeconds" height={22} stroke="#1B7A6E" travellerWidth={7} tickFormatter={() => ''} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      {footer && <div className="border-t border-black/8 px-5 py-3 text-[10px] text-black/45 dark:border-white/8 dark:text-white/45">{footer}</div>}
+    </section>
+  );
+}
 
-      {/* ── Session Info Bar ── */}
-      {selectedSession && (
-        <div className="flex-none flex items-center gap-4 px-4 py-1.5 bg-[#1B7A6E]/5 border-b border-[#1B7A6E]/20 text-[9px] font-bold uppercase tracking-widest text-[#1B7A6E]">
-          <span className="flex items-center gap-1.5"><Calendar size={10} /> {new Date(selectedSession.startTime).toLocaleDateString()}</span>
-          <span className="flex items-center gap-1.5"><Clock size={10} /> {formatDuration(selectedSession.durationMs)} recording</span>
-          <span className="flex items-center gap-1.5"><Database size={10} /> {selectedSession.sampleCount.toLocaleString()} samples → {packetCount.toLocaleString()} displayed</span>
-          {selectedSession.sampleCount > packetCount && (
-            <span className="text-[#D99B3F]">↓ Downsampled {Math.round(selectedSession.sampleCount / packetCount)}×</span>
-          )}
-        </div>
-      )}
+export default function TelemetryDashboard({ deviceId, ownerName }: Props) {
+  const { data, sessions, selectedSessionId, setSelectedSessionId, connectionStatus, refresh } = useTelemetryStream(deviceId);
+  const selectedSession = sessions.find((session) => session.sessionId === selectedSessionId);
+  const latest = data.at(-1);
+  const completeness = selectedSession ? selectedSession.sampleCount / EXPECTED_V1_SAMPLE_COUNT : 0;
+  const ch1Rms = useMemo(() => {
+    if (data.length === 0) return 0;
+    return Math.sqrt(data.reduce((sum, point) => sum + point.ecgCh1Count ** 2, 0) / data.length);
+  }, [data]);
 
-      {/* ── Empty State ── */}
-      {connectionStatus === 'LOADING' && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-light-text-secondary dark:text-[#9A9A9A]">
-            <div className="w-8 h-8 border-2 border-[#1B7A6E]/30 border-t-[#1B7A6E] rounded-full animate-spin" />
-            <span className="text-xs font-bold uppercase tracking-widest">Loading session data…</span>
+  useEffect(() => {
+    document.title = `ECG Telemetry · ${deviceId}`;
+  }, [deviceId]);
+
+  return (
+    <div className="h-full overflow-y-auto bg-[#f4f7f6] dark:bg-[#070a0a]">
+      <div className="mx-auto max-w-6xl space-y-5 px-5 py-6 md:px-8 md:py-8">
+        <header className="flex flex-col gap-4 border-b border-black/10 pb-5 dark:border-white/10 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#1B7A6E] dark:text-[#55c8b7]">Stored recording</p>
+            <h1 className="truncate font-mono text-xl font-semibold">{deviceId}</h1>
+            <p className="mt-1 text-xs text-black/45 dark:text-white/45">{ownerName || 'No owner assigned'} · V1 Li-Po board</p>
           </div>
-        </div>
-      )}
-
-      {connectionStatus !== 'LOADING' && data.length === 0 && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-light-text-secondary dark:text-[#9A9A9A] text-center p-8">
-            <Database size={32} className="opacity-30" />
-            <span className="text-xs font-bold uppercase tracking-widest">No data in this session</span>
-            <span className="text-[10px]">Connect your hardware and send data via the ingest endpoint.</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <SessionPicker sessions={sessions} selectedId={selectedSessionId} onSelect={setSelectedSessionId} />
+            <button onClick={refresh} className="rounded-lg border border-black/10 bg-white p-2.5 text-black/50 hover:text-[#1B7A6E] dark:border-white/10 dark:bg-white/[0.04] dark:text-white/50" title="Refresh recordings">
+              <RefreshCw size={14} />
+            </button>
           </div>
-        </div>
-      )}
+        </header>
 
-      {/* ── Hero Chart Sections ── */}
-      {data.length > 0 && (
-        <div className="flex-1 overflow-y-auto">
-
-          {/* ── Latest Readings (moved from header) ── */}
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-[#262626] bg-gray-50 dark:bg-[#050505]">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-3">Latest Readings</h3>
-            <div className="flex flex-wrap gap-8">
-              {[
-                { label: 'ACCEL X', value: latestData.accelX, unit: 'mg',  color: '#1B7A6E' },
-                { label: 'ACCEL Y', value: latestData.accelY, unit: 'mg',  color: '#D99B3F' },
-                { label: 'ACCEL Z', value: latestData.accelZ, unit: 'mg',  color: '#C4453D' },
-                { label: 'ECG CH1', value: latestData.ecg1,   unit: 'mV',  color: '#22c55e' },
-                { label: 'ECG CH2', value: latestData.ecg2,   unit: 'mV',  color: '#3b82f6' },
-                { label: '|Mag|',   value: latestData.magnitude, unit: 'mg', color: '#6366f1' },
-              ].map((m) => (
-                <div key={m.label} className="flex flex-col">
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.label}</span>
-                  <span className="text-lg font-bold font-mono tracking-tight" style={{ color: m.color }}>{m.value.toFixed(2)}</span>
-                  <span className="text-[9px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.unit}</span>
-                </div>
-              ))}
-            </div>
+        {selectedSession && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-900 dark:text-amber-200">
+            <strong>Estimated capture time:</strong> {new Date(selectedSession.startTime).toLocaleString()}–{new Date(selectedSession.endTime).toLocaleTimeString()}.
+            The board sends uptime; the server aligns this recording to its upload receipt. The charts use elapsed time for accuracy.
           </div>
+        )}
 
-          {/* 1. Accelerometer */}
-          <ChartHero
-            title="Accelerometer" tag="X · Y · Z Axes — mg"
-            accentColor="#1B7A6E" data={data}
-            yKeys={['accelX', 'accelY', 'accelZ']} defaultYDomain={[-1500, 1500]}
-            legend={
-              <div className="flex items-center gap-3 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">
-                <span className="flex items-center gap-1"><div className="w-3 h-0.5 bg-[#1B7A6E]" /> X</span>
-                <span className="flex items-center gap-1"><div className="w-3 h-0.5 bg-[#D99B3F]" /> Y</span>
-                <span className="flex items-center gap-1"><div className="w-3 h-0.5 bg-[#C4453D]" /> Z</span>
+        {selectedSession && (
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <Metric label="Samples" value={selectedSession.sampleCount.toLocaleString()} note={`${Math.min(100, completeness * 100).toFixed(1)}% of expected V1 batch`} />
+            <Metric label="Recording length" value={formatRecordingDuration(selectedSession.durationMs)} note="Includes the final sample interval" />
+            <Metric label="Measured rate" value={selectedSession.sampleRateHz ? `${selectedSession.sampleRateHz.toFixed(2)} Hz` : '—'} note="Expected 250 Hz" />
+            <Metric label="Latest ECG" value={latest ? `${latest.ecgCh2Mv.toFixed(4)} mV` : '—'} note="CH2 converted from raw code" />
+            <Metric label="Motion deviation" value={latest ? `${latest.dynamicMotionMg.toFixed(0)} mg` : '—'} note="Absolute deviation from 1 g" />
+          </section>
+        )}
+
+        {connectionStatus === 'LOADING' && (
+          <div className="flex h-64 items-center justify-center gap-3 text-sm text-black/45 dark:text-white/45">
+            <RefreshCw size={17} className="animate-spin" /> Loading recording…
+          </div>
+        )}
+        {connectionStatus === 'ERROR' && (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-6 text-center text-sm text-rose-700 dark:text-rose-300">The recording could not be loaded.</div>
+        )}
+        {connectionStatus === 'LOADED' && data.length === 0 && (
+          <div className="flex h-64 flex-col items-center justify-center text-center text-sm text-black/45 dark:text-white/45">
+            <Database size={28} className="mb-3 opacity-40" />
+            No telemetry recording is available for this board.
+          </div>
+        )}
+
+        {data.length > 0 && (
+          <>
+            <TraceChart
+              title="ECG — RA / LA differential"
+              subtitle="Primary electrode channel (ADS1292R Channel 2)"
+              data={data}
+              traces={[{ key: 'ecgCh2Mv', name: 'ECG CH2', color: '#22a98f' }]}
+              unit="mV"
+              footer={<>Stored codes remain unchanged. Display conversion uses {ECG_CH2_MV_PER_COUNT.toExponential(6)} mV/count from the current 2.42 V reference and gain-6 configuration.</>}
+            />
+
+            <TraceChart
+              title="Motion axes"
+              subtitle="LIS3DH ±2 g high-resolution output; refreshed at 50 Hz and repeated in the 250 Hz ECG rows"
+              data={data}
+              traces={[
+                { key: 'accelXMg', name: 'X', color: '#1B7A6E', type: 'stepAfter' },
+                { key: 'accelYMg', name: 'Y', color: '#d59a38', type: 'stepAfter' },
+                { key: 'accelZMg', name: 'Z', color: '#c45a52', type: 'stepAfter' },
+              ]}
+              unit="mg"
+            />
+
+            <TraceChart
+              title="Motion magnitude"
+              subtitle="Gravity-aware context for identifying motion-corrupted ECG regions"
+              data={data}
+              traces={[
+                { key: 'magnitudeMg', name: 'Magnitude', color: '#6574cd', type: 'stepAfter' },
+                { key: 'dynamicMotionMg', name: '|magnitude − 1000|', color: '#c45a52', type: 'stepAfter' },
+              ]}
+              unit="mg"
+              footer="This is descriptive motion context. No motion or clinical alarm threshold is applied."
+            />
+
+            <details className="rounded-2xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.035]">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4">
+                <span>
+                  <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={15} className="text-[#1B7A6E]" /> AFE noise / offset reference</span>
+                  <span className="mt-1 block text-xs text-black/45 dark:text-white/45">ADS1292R Channel 1 is internally shorted; it is not a patient ECG lead.</span>
+                </span>
+                <span className="font-mono text-xs text-black/45 dark:text-white/45">RMS {ch1Rms.toFixed(1)} counts</span>
+              </summary>
+              <div className="border-t border-black/8 p-4 dark:border-white/8">
+                <TraceChart
+                  title="Channel 1 diagnostic codes"
+                  subtitle="Raw signed ADC counts from the internal-short reference"
+                  data={data}
+                  traces={[{ key: 'ecgCh1Count', name: 'CH1 reference', color: '#8b9693' }]}
+                  unit="counts"
+                />
               </div>
-            }
-          >
-            {() => (
-              <>
-                <Line type="monotone" dataKey="accelX" name="X (mg)" stroke="#1B7A6E" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
-                <Line type="monotone" dataKey="accelY" name="Y (mg)" stroke="#D99B3F" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
-                <Line type="monotone" dataKey="accelZ" name="Z (mg)" stroke="#C4453D" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
-              </>
-            )}
-          </ChartHero>
+            </details>
+          </>
+        )}
 
-          {/* 2. Magnitude */}
-          <ChartHero
-            title="Magnitude" tag="Vector Sum — mg"
-            accentColor="#6366f1" data={data}
-            yKeys={['magnitude']} defaultYDomain={[0, 2000]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#6366f1]" /> |Mag|</span>}
-          >
-            {() => (
-              <Line type="monotone" dataKey="magnitude" name="|Mag| (mg)" stroke="#6366f1" strokeWidth={2} dot={data.length < 50} isAnimationActive={false} />
-            )}
-          </ChartHero>
-
-          {/* 3. ECG Channel 1 */}
-          <ChartHero
-            title="ECG Channel 1" tag="Lead I — mV"
-            accentColor="#22c55e" data={data}
-            yKeys={['ecg1']} defaultYDomain={[-2, 2]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#22c55e]" /> CH1</span>}
-          >
-            {() => (
-              <Line type="monotone" dataKey="ecg1" name="ECG CH1 (mV)" stroke="#22c55e" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
-            )}
-          </ChartHero>
-
-          {/* 4. ECG Channel 2 */}
-          <ChartHero
-            title="ECG Channel 2" tag="Lead II — mV"
-            accentColor="#3b82f6" data={data}
-            yKeys={['ecg2']} defaultYDomain={[-2, 2]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#3b82f6]" /> CH2</span>}
-          >
-            {() => (
-              <Line type="monotone" dataKey="ecg2" name="ECG CH2 (mV)" stroke="#3b82f6" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
-            )}
-          </ChartHero>
-
-
-        </div>
-      )}
+        <footer className="flex flex-wrap items-center gap-x-5 gap-y-2 pb-4 text-[10px] text-black/40 dark:text-white/40">
+          <span className="flex items-center gap-1.5"><Activity size={11} /> ECG 250 SPS nominal</span>
+          <span className="flex items-center gap-1.5"><Clock3 size={11} /> Motion 50 Hz</span>
+          <span className="flex items-center gap-1.5"><Database size={11} /> SD-first batch upload</span>
+        </footer>
+      </div>
     </div>
   );
 }
