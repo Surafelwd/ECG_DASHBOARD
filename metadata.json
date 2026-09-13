@@ -1,5 +1,5 @@
 {
-  "name": "ECG Telemetry Dashboard",
+  "name": "TirtaTrace",
   "description": "Recording dashboard for the STM32 V1 Li-Po ECG and motion telemetry firmware.",
   "requestFramePermissions": [],
   "majorCapabilities": []

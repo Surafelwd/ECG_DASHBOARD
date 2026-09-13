@@ -171,7 +171,7 @@ export default function TelemetryDashboard({ deviceId, ownerName }: Props) {
   }, [data]);
 
   useEffect(() => {
-    document.title = `ECG Telemetry · ${deviceId}`;
+    document.title = `TirtaTrace · ${deviceId}`;
   }, [deviceId]);
 
   return (
@@ -199,12 +199,17 @@ export default function TelemetryDashboard({ deviceId, ownerName }: Props) {
         )}
 
         {selectedSession && (
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Metric label="Samples" value={selectedSession.sampleCount.toLocaleString()} note={`${Math.min(100, completeness * 100).toFixed(1)}% of expected V1 batch`} />
             <Metric label="Recording length" value={formatRecordingDuration(selectedSession.durationMs)} note="Includes the final sample interval" />
             <Metric label="Measured rate" value={selectedSession.sampleRateHz ? `${selectedSession.sampleRateHz.toFixed(2)} Hz` : '—'} note="Expected 250 Hz" />
             <Metric label="Latest ECG" value={latest ? `${latest.ecgCh2Mv.toFixed(4)} mV` : '—'} note="CH2 converted from raw code" />
             <Metric label="Motion deviation" value={latest ? `${latest.dynamicMotionMg.toFixed(0)} mg` : '—'} note="Absolute deviation from 1 g" />
+            <Metric
+              label="Battery rail"
+              value={selectedSession.batteryVoltageMv === null ? 'Not measured' : `${(selectedSession.batteryVoltageMv / 1000).toFixed(3)} V`}
+              note="A7670G supply measured during upload"
+            />
           </section>
         )}
 

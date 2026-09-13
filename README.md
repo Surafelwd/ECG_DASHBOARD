@@ -1,4 +1,4 @@
-# ECG telemetry dashboard
+# TirtaTrace ECG telemetry dashboard
 
 This service receives stored V1 Li-Po board recordings, writes them to
 PostgreSQL, and displays the ECG and motion samples that the firmware actually
@@ -88,10 +88,11 @@ current V1 Li-Po firmware:
 
 Battery percentage, radio signal, GPS location, firmware version, clinical
 analysis, and remote device commands are intentionally absent because the
-current upload does not contain them. V1 can later report battery voltage by
-querying the A7670G with `AT+CBC` while the modem rail is on and adding that
-value to versioned session metadata. Voltage should be shown before attempting
-an estimated Li-Po percentage.
+current upload does not contain them. The coordinated V1 firmware queries the
+A7670G with `AT+CBC` while the modem rail is on and sends the result in the
+optional `X-Battery-Millivolts` request header. TirtaTrace stores that voltage
+with the recording and labels it as measured during upload. Uploads without the
+header remain valid; no percentage is inferred from the load-dependent voltage.
 
 The dashboard currently has no user login or access-control layer. Protect the
 deployed service before using it for personal or clinical data.

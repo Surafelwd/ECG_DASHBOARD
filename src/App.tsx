@@ -40,6 +40,10 @@ export default function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
+  useEffect(() => {
+    if (view === 'dashboard') document.title = 'TirtaTrace';
+  }, [view]);
+
   const openDevice = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
     setView('devices');
@@ -54,7 +58,7 @@ export default function App() {
               <Activity size={19} />
             </span>
             <span className="text-left">
-              <span className="block text-sm font-semibold tracking-tight">ECG Telemetry</span>
+              <span className="block text-sm font-semibold tracking-tight">TirtaTrace</span>
               <span className="block text-[10px] uppercase tracking-[0.22em] text-black/45 dark:text-white/45">V1 recording monitor</span>
             </span>
           </button>

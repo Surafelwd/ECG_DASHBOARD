@@ -104,6 +104,14 @@ export function ecgCh2CountsToMv(rawCount) {
   return rawCount * ECG_CH2_MV_PER_COUNT;
 }
 
+export function parseBatteryMillivolts(value) {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const millivolts = Number(value);
+  return Number.isSafeInteger(millivolts) && millivolts >= 2500 && millivolts <= 5000
+    ? millivolts
+    : null;
+}
+
 export function getUploadStatus(lastSync, nowMs = Date.now()) {
   if (!lastSync) return { key: 'never', label: 'No uploads', ageMs: null };
   const lastSyncMs = new Date(lastSync).getTime();

@@ -4,7 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import { db } from './src/db/index.js';
 import { devices, readings, events, telemetrySessions } from './src/db/schema.js';
 import { and, desc, eq, ne, or, sql } from 'drizzle-orm';
-import { parseV1Csv, getUploadStatus, MAX_BATCH_SIZE } from './src/lib/telemetry-contract.mjs';
+import { parseV1Csv, getUploadStatus, MAX_BATCH_SIZE, parseBatteryMillivolts } from './src/lib/telemetry-contract.mjs';
 import { payloadDigest, sessionIdForPayload } from './src/lib/ingest-contract.mjs';
 import 'dotenv/config';
 
@@ -70,6 +70,7 @@ function mapDevice(device: typeof devices.$inferSelect, totals: DeviceTotals = {
     uploadStatusKey: uploadStatus.key,
     sessionCount: totals.sessionCount,
     totalSamples: totals.totalSamples,
+    batteryVoltageMv: device.last_battery_voltage_mv ?? null,
   };
 }
 
@@ -87,6 +88,7 @@ async function startServer() {
       const parsed = typeof req.body === 'string'
         ? parseV1Csv(req.body, receivedAt.getTime())
         : parseLegacyJson(req.body, receivedAt.getTime());
+      const batteryVoltageMv = parseBatteryMillivolts(req.get('x-battery-millivolts'));
 
       if (!parsed.deviceId) {
         return res.status(401).json({ error: 'Unauthorized: Missing device_id or api_key' });
@@ -119,6 +121,7 @@ async function startServer() {
             device_uptime_start_ms: parsed.deviceUptimeStartMs,
             device_uptime_end_ms: parsed.deviceUptimeEndMs,
             sample_count: parsed.readings.length,
+            battery_voltage_mv: batteryVoltageMv,
           })
           .onConflictDoNothing({ target: telemetrySessions.payload_hash })
           .returning({ id: telemetrySessions.id });
@@ -138,7 +141,11 @@ async function startServer() {
         })));
 
         await tx.update(devices)
-          .set({ last_sync: receivedAt, connectivity_status: 'online' })
+          .set({
+            last_sync: receivedAt,
+            connectivity_status: 'online',
+            last_battery_voltage_mv: batteryVoltageMv,
+          })
           .where(eq(devices.id, device.id));
 
         return { duplicate: false };
@@ -223,6 +230,7 @@ async function startServer() {
           endTime: sql<Date>`max(${readings.time})`.as('end_time'),
           receivedAt: sql<Date>`max(${telemetrySessions.received_at})`.as('received_at'),
           sampleCount: sql<number>`count(*)`.as('sample_count'),
+          batteryVoltageMv: sql<number | null>`max(${telemetrySessions.battery_voltage_mv})`.as('battery_voltage_mv'),
         })
         .from(readings)
         .leftJoin(telemetrySessions, eq(readings.session_id, telemetrySessions.id))
@@ -244,6 +252,7 @@ async function startServer() {
           sampleCount,
           durationMs: spanMs + samplePeriodMs,
           sampleRateHz: spanMs > 0 ? ((sampleCount - 1) * 1000) / spanMs : null,
+          batteryVoltageMv: row.batteryVoltageMv === null ? null : Number(row.batteryVoltageMv),
           timeBasis: 'estimated-from-upload',
         };
       }));

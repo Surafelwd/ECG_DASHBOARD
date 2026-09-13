@@ -5,6 +5,7 @@ import {
   ECG_CH2_MV_PER_COUNT,
   ecgCh2CountsToMv,
   getUploadStatus,
+  parseBatteryMillivolts,
   parseV1Csv,
 } from '../src/lib/telemetry-contract.mjs';
 import { sessionIdForPayload } from '../src/lib/ingest-contract.mjs';
@@ -84,4 +85,13 @@ test('derives a stable UUID-shaped session id from device and payload', () => {
   assert.equal(first, second);
   assert.notEqual(first, changed);
   assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+
+test('accepts only plausible optional battery millivolt headers', () => {
+  assert.equal(parseBatteryMillivolts('3749'), 3749);
+  assert.equal(parseBatteryMillivolts(undefined), null);
+  assert.equal(parseBatteryMillivolts(''), null);
+  assert.equal(parseBatteryMillivolts('3.749'), null);
+  assert.equal(parseBatteryMillivolts('2499'), null);
+  assert.equal(parseBatteryMillivolts('5001'), null);
 });

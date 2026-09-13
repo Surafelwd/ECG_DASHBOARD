@@ -7,4 +7,5 @@ export interface DeviceSummary {
   uploadStatusKey: 'recent' | 'delayed' | 'stale' | 'never';
   sessionCount: number;
   totalSamples: number;
+  batteryVoltageMv: number | null;
 }

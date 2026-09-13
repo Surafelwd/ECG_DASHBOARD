@@ -23,6 +23,7 @@ export interface SessionMeta {
   durationMs: number;
   sampleRateHz: number | null;
   timeBasis: 'estimated-from-upload';
+  batteryVoltageMv: number | null;
 }
 
 export function useTelemetryStream(deviceId: string) {
