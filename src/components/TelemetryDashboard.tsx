@@ -35,7 +35,8 @@ function formatSessionLabel(s: SessionMeta): string {
   const d = new Date(s.startTime);
   return d.toLocaleString([], {
     month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone: 'UTC'
   });
 }
 
@@ -136,7 +137,7 @@ function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legen
                 dataKey="time"
                 type="number"
                 domain={['dataMin', 'dataMax']}
-                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' })}
                 tick={{ fontSize: 9, fill: '#9A9A9A' }}
                 axisLine={false}
                 tickLine={false}
@@ -150,7 +151,7 @@ function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legen
                 tickFormatter={(v: number) => v.toFixed(1)}
               />
               <RechartsTooltip
-                labelFormatter={(label) => new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                labelFormatter={(label) => new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' })}
                 contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#333', borderRadius: '4px', fontSize: '11px', color: '#F2F2F2' }}
                 itemStyle={{ fontWeight: 'bold' }}
               />
@@ -173,7 +174,7 @@ function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legen
                 stroke={accentColor}
                 fill="#111"
                 travellerWidth={6}
-                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' })}
                 startIndex={brushRange[0]}
                 endIndex={brushRange[1]}
                 onChange={(e) => {
@@ -243,7 +244,7 @@ function SessionPicker({ sessions, selectedSessionId, onSelect }: {
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-[9px] text-light-text-secondary dark:text-[#9A9A9A]">
                     <span className="flex items-center gap-1"><Clock size={9} /> {formatDuration(s.durationMs)}</span>
-                    <span>{new Date(s.startTime).toLocaleDateString()}</span>
+                    <span>{new Date(s.startTime).toLocaleDateString([], { timeZone: 'UTC' })}</span>
                   </div>
                 </button>
               ))}
@@ -313,7 +314,7 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
       {/* ── Session Info Bar ── */}
       {selectedSession && (
         <div className="flex-none flex items-center gap-4 px-4 py-1.5 bg-[#1B7A6E]/5 border-b border-[#1B7A6E]/20 text-[9px] font-bold uppercase tracking-widest text-[#1B7A6E]">
-          <span className="flex items-center gap-1.5"><Calendar size={10} /> {new Date(selectedSession.startTime).toLocaleDateString()}</span>
+          <span className="flex items-center gap-1.5"><Calendar size={10} /> {new Date(selectedSession.startTime).toLocaleDateString([], { timeZone: 'UTC' })}</span>
           <span className="flex items-center gap-1.5"><Clock size={10} /> {formatDuration(selectedSession.durationMs)} recording</span>
           <span className="flex items-center gap-1.5"><Database size={10} /> {selectedSession.sampleCount.toLocaleString()} samples → {packetCount.toLocaleString()} displayed</span>
           {selectedSession.sampleCount > packetCount && (

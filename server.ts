@@ -228,7 +228,7 @@ async function startServer() {
         signalStrength: d.connectivity_status === 'online' ? 3 : 0,
         firmwareVersion: 'v1.0.0',
         firmwareUpdateAvailable: false,
-        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString() : 'Never',
+        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
       }));
       res.json(mapped);
     } catch (err) {
@@ -250,7 +250,7 @@ async function startServer() {
         signalStrength: d.connectivity_status === 'online' ? 3 : 0,
         firmwareVersion: 'v1.0.0',
         firmwareUpdateAvailable: false,
-        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString() : 'Never',
+        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
       });
     } catch (err) {
       console.error('Error fetching device:', err);

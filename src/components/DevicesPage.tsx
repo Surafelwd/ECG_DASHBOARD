@@ -105,7 +105,7 @@ const defaultGetDeviceDetail = async (deviceId: string) => {
       motionArtifactFlags: [],
       readings: (Array.isArray(readings) ? readings : []).map((r: any) => ({
         id: r.id,
-        timestamp: new Date(r.time).toLocaleString(),
+        timestamp: new Date(r.time).toLocaleString([], { timeZone: 'UTC' }),
         accelX: r.accel_x,
         accelY: r.accel_y,
         accelZ: r.accel_z,
