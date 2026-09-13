@@ -150,7 +150,7 @@ function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legen
                 tickFormatter={(v: number) => v.toFixed(1)}
               />
               <RechartsTooltip
-                labelFormatter={(label) => new Date(label).toLocaleTimeString()}
+                labelFormatter={(label) => new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#333', borderRadius: '4px', fontSize: '11px', color: '#F2F2F2' }}
                 itemStyle={{ fontWeight: 'bold' }}
               />
@@ -173,7 +173,7 @@ function ChartHero({ title, tag, accentColor, data, yKeys, defaultYDomain, legen
                 stroke={accentColor}
                 fill="#111"
                 travellerWidth={6}
-                tickFormatter={() => ''}
+                tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 startIndex={brushRange[0]}
                 endIndex={brushRange[1]}
                 onChange={(e) => {

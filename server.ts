@@ -14,9 +14,22 @@ async function startServer() {
   app.use(express.json());
   app.use(express.text({ type: ['text/csv', 'text/plain'], limit: '50mb' }));
 
+  const recentPayloadDigests = new Map<string, number>();
+
   // Ingest API
   app.post('/api/ingest', async (req, res) => {
     try {
+      // Duplicate protection: return HTTP 200 without inserting duplicate readings
+      const rawPayload = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      const payloadDigest = crypto.createHash('sha256').update(rawPayload).digest('hex');
+      if (recentPayloadDigests.has(payloadDigest)) {
+        return res.status(200).json({
+          success: true,
+          duplicate: true,
+          message: 'Identical payload already stored (duplicate ignored)'
+        });
+      }
+
       let readingsArray: any[] = [];
       let deviceKey = '';
 
@@ -49,14 +62,17 @@ async function startServer() {
           });
         }
 
-        // Calculate absolute timestamps by assuming the latest reading is 'now'
+        // Calculate estimated capture time:
+        // 'timestamp' in CSV is STM32 uptime in milliseconds.
+        // Capture time is estimated from server receipt time and must remain identified as an estimate.
         if (readingsArray.length > 0) {
           const maxUptime = Math.max(...readingsArray.map(r => r.uptime));
-          const now = Date.now();
+          const serverReceiptTime = Date.now();
           readingsArray = readingsArray.map(r => {
-            const absoluteTimestamp = now - (maxUptime - r.uptime);
+            const estimatedCaptureTimestamp = serverReceiptTime - (maxUptime - r.uptime);
             return {
-              timestamp: absoluteTimestamp,
+              timestamp: estimatedCaptureTimestamp,
+              uptime: r.uptime,
               accel_x: r.accel_x,
               accel_y: r.accel_y,
               accel_z: r.accel_z,
@@ -136,12 +152,29 @@ async function startServer() {
       }));
 
       await db.insert(readings).values(rowsToInsert);
+      recentPayloadDigests.set(payloadDigest, Date.now());
+
+      // Optional X-Battery-Millivolts header (2500 - 5000 mV)
+      // Note per spec: Battery percentage should NOT be inferred from this voltage measurement.
+      const batteryHeader = req.headers['x-battery-millivolts'];
+      let batteryMillivolts: number | undefined;
+      if (batteryHeader) {
+        const rawMv = parseInt(Array.isArray(batteryHeader) ? batteryHeader[0] : (batteryHeader as string), 10);
+        if (!isNaN(rawMv) && rawMv >= 2500 && rawMv <= 5000) {
+          batteryMillivolts = rawMv;
+        }
+      }
+
+      const deviceUpdate: any = {
+        last_sync: new Date(),
+        connectivity_status: 'online',
+      };
+      if (batteryMillivolts !== undefined) {
+        deviceUpdate.battery_level = batteryMillivolts;
+      }
 
       await db.update(devices)
-        .set({
-          last_sync: new Date(),
-          connectivity_status: 'online',
-        })
+        .set(deviceUpdate)
         .where(eq(devices.id, device.id));
 
       await db.insert(events).values({

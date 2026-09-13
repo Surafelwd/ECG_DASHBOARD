@@ -60,18 +60,30 @@ export function useTelemetryStream(deviceId: string) {
     fetch(url)
       .then(r => { if (!r.ok) throw new Error('Network error'); return r.json(); })
       .then((telemetry: any[]) => {
+        // ECG conversion formula from ADS1292R 24-bit raw signed codes to mV:
+        // raw * (2.42 / (6 * 8388607)) * 1000
+        const ADS1292R_SCALE = (2.42 / (6 * 8388607)) * 1000;
+        const toEcgMv = (val: number | null | undefined): number => {
+          if (val === null || val === undefined || isNaN(val)) return 0;
+          // If magnitude > 20, it is raw ADS1292R code (values in tens of thousands); otherwise already mV
+          if (Math.abs(val) > 20) {
+            return Number((val * ADS1292R_SCALE).toFixed(4));
+          }
+          return Number(val.toFixed(4));
+        };
+
         const mappedData = telemetry.map((t: any) => ({
           time: new Date(t.time).getTime(),
-          accelX: t.accel_x || 0,
-          accelY: t.accel_y || 0,
-          accelZ: t.accel_z || 0,
-          ecg1: t.ecg_ch1 || 0,
-          ecg2: t.ecg_ch2 || 0,
-          magnitude: Math.sqrt(
+          accelX: Number((t.accel_x || 0).toFixed(2)),
+          accelY: Number((t.accel_y || 0).toFixed(2)),
+          accelZ: Number((t.accel_z || 0).toFixed(2)),
+          ecg1: toEcgMv(t.ecg_ch1),
+          ecg2: toEcgMv(t.ecg_ch2),
+          magnitude: Number(Math.sqrt(
             Math.pow(t.accel_x || 0, 2) +
             Math.pow(t.accel_y || 0, 2) +
             Math.pow(t.accel_z || 0, 2)
-          ),
+          ).toFixed(2)),
         }));
         setData(mappedData);
         setPacketCount(mappedData.length);
