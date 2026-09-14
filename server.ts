@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/db/index.js';
-import { devices, readings, events } from './src/db/schema.js';
+import { devices, readings, events, telemetry_sessions } from './src/db/schema.js';
 import { eq, or, desc, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import 'dotenv/config';
@@ -22,7 +22,14 @@ async function startServer() {
       // Duplicate protection: return HTTP 200 without inserting duplicate readings
       const rawPayload = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
       const payloadDigest = crypto.createHash('sha256').update(rawPayload).digest('hex');
-      if (recentPayloadDigests.has(payloadDigest)) {
+
+      const [existingSession] = await db
+        .select({ id: telemetry_sessions.id })
+        .from(telemetry_sessions)
+        .where(eq(telemetry_sessions.payload_hash, payloadDigest))
+        .limit(1);
+
+      if (existingSession || recentPayloadDigests.has(payloadDigest)) {
         return res.status(200).json({
           success: true,
           duplicate: true,
@@ -140,19 +147,10 @@ async function startServer() {
       }
 
       const sessionId = crypto.randomUUID();
-      const rowsToInsert = readingsArray.map((r: any) => ({
-        device_id: device.id,
-        session_id: sessionId,
-        time: new Date(r.timestamp),
-        accel_x: r.accel_x,
-        accel_y: r.accel_y,
-        accel_z: r.accel_z,
-        ecg_ch1: r.ecg_ch1,
-        ecg_ch2: r.ecg_ch2,
-      }));
-
-      await db.insert(readings).values(rowsToInsert);
-      recentPayloadDigests.set(payloadDigest, Date.now());
+      const startTime = new Date(readingsArray[0].timestamp);
+      const endTime = new Date(readingsArray[readingsArray.length - 1].timestamp);
+      const startUptime = readingsArray[0].uptime || 0;
+      const endUptime = readingsArray[readingsArray.length - 1].uptime || 0;
 
       // Optional X-Battery-Millivolts header (2500 - 5000 mV)
       // Note per spec: Battery percentage should NOT be inferred from this voltage measurement.
@@ -165,12 +163,41 @@ async function startServer() {
         }
       }
 
+      await db.insert(telemetry_sessions).values({
+        id: sessionId,
+        device_id: device.id,
+        payload_hash: payloadDigest,
+        received_at: new Date(),
+        estimated_start_time: startTime,
+        estimated_end_time: endTime,
+        device_uptime_start_ms: startUptime,
+        device_uptime_end_ms: endUptime,
+        sample_count: readingsArray.length,
+        battery_voltage_mv: batteryMillivolts || null,
+      });
+
+      const rowsToInsert = readingsArray.map((r: any) => ({
+        device_id: device.id,
+        session_id: sessionId,
+        time: new Date(r.timestamp),
+        accel_x: r.accel_x,
+        accel_y: r.accel_y,
+        accel_z: r.accel_z,
+        ecg_ch1: r.ecg_ch1,
+        ecg_ch2: r.ecg_ch2,
+        device_uptime_ms: r.uptime || null,
+      }));
+
+      await db.insert(readings).values(rowsToInsert);
+      recentPayloadDigests.set(payloadDigest, Date.now());
+
       const deviceUpdate: any = {
         last_sync: new Date(),
         connectivity_status: 'online',
       };
       if (batteryMillivolts !== undefined) {
         deviceUpdate.battery_level = batteryMillivolts;
+        deviceUpdate.last_battery_voltage_mv = batteryMillivolts;
       }
 
       await db.update(devices)
@@ -271,7 +298,25 @@ async function startServer() {
   // GET /api/sessions/:deviceId  — list all sessions for a device
   app.get('/api/sessions/:deviceId', async (req, res) => {
     try {
-      // Group readings by session_id, return metadata for each
+      const storedSessions = await db
+        .select()
+        .from(telemetry_sessions)
+        .where(eq(telemetry_sessions.device_id, req.params.deviceId))
+        .orderBy(desc(telemetry_sessions.estimated_end_time));
+
+      if (storedSessions.length > 0) {
+        return res.json(storedSessions.map(s => ({
+          sessionId: s.id,
+          startTime: s.estimated_start_time,
+          endTime: s.estimated_end_time,
+          sampleCount: Number(s.sample_count),
+          durationMs: s.estimated_end_time && s.estimated_start_time
+            ? new Date(s.estimated_end_time).getTime() - new Date(s.estimated_start_time).getTime()
+            : 0,
+        })));
+      }
+
+      // Group readings by session_id fallback
       const rows = await db
         .select({
           sessionId: readings.session_id,
