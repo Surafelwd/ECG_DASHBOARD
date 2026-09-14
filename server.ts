@@ -3,7 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/db/index.js';
 import { devices, readings, events, telemetry_sessions } from './src/db/schema.js';
-import { eq, or, desc, sql } from 'drizzle-orm';
+import { eq, or, and, desc, sql, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import 'dotenv/config';
 
@@ -15,6 +15,9 @@ async function startServer() {
   app.use(express.text({ type: ['text/csv', 'text/plain'], limit: '50mb' }));
 
   const recentPayloadDigests = new Map<string, number>();
+
+  const ML_SERVICE_URL = process.env.ML_SERVICE_URL?.replace(/\/+$/, '');
+  const ML_SERVICE_API_KEY = process.env.ML_SERVICE_API_KEY;
 
   // Ingest API
   app.post('/api/ingest', async (req, res) => {
@@ -229,6 +232,34 @@ async function startServer() {
         });
       }
 
+      // Asynchronously forward to ECG ML Service if configured (ECG_ML_SERVICE_INTEGRATION)
+      // Do not make the board wait for ML inference
+      if (ML_SERVICE_URL && ML_SERVICE_API_KEY && typeof req.body === 'string') {
+        const mlPayload = {
+          upload_id: sessionId,
+          device_id: device.id,
+          received_at: new Date().toISOString(),
+          csv_text: req.body,
+        };
+        fetch(`${ML_SERVICE_URL}/v1/ecg/uploads`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(mlPayload),
+        }).then(async (mlRes) => {
+          if (!mlRes.ok) {
+            const errText = await mlRes.text().catch(() => '');
+            console.warn(`[ML Service Forward] Received HTTP ${mlRes.status}:`, errText);
+          } else {
+            console.log(`[ML Service Forward] Accepted upload ${sessionId} for ${device.id}`);
+          }
+        }).catch((err) => {
+          console.warn('[ML Service Forward] Network failure:', err.message);
+        });
+      }
+
       return res.status(200).json({
         success: true,
         deviceId: device.id,
@@ -241,22 +272,71 @@ async function startServer() {
     }
   });
 
+  // 6-hour offline measure: devices are considered offline if last upload was > 6 hours ago
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+  function computeConnectivity(d: { connectivity_status?: string | null; last_sync?: Date | string | null }): 'Online' | 'Offline' {
+    if (!d.last_sync || d.connectivity_status !== 'online') {
+      return 'Offline';
+    }
+    const lastSyncTime = new Date(d.last_sync).getTime();
+    if (isNaN(lastSyncTime)) return 'Offline';
+    return (Date.now() - lastSyncTime) <= SIX_HOURS_MS ? 'Online' : 'Offline';
+  }
+
+  // Periodic offline background check: marks devices older than 6 hours as 'offline' in DB
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - SIX_HOURS_MS);
+      await db.update(devices)
+        .set({ connectivity_status: 'offline' })
+        .where(
+          and(
+            eq(devices.connectivity_status, 'online'),
+            or(
+              sql`${devices.last_sync} < ${cutoff}`,
+              sql`${devices.last_sync} IS NULL`
+            )
+          )
+        );
+    } catch (err) {
+      console.warn('[Offline Sweep] Error running periodic offline check:', err);
+    }
+  }, 60 * 1000);
+
   // GET endpoints for the dashboard
   app.get('/api/devices', async (req, res) => {
     try {
       const allDevices = await db.select().from(devices);
+      const staleDeviceIds: string[] = [];
+
       // Map snake_case DB fields to camelCase for frontend
-      const mapped = allDevices.map(d => ({
-        id: d.id,
-        serialNumber: d.serial_number || d.id,
-        ownerName: d.owner_name || '',
-        connectivityStatus: d.connectivity_status === 'online' ? 'Online' : 'Offline',
-        batteryLevel: d.battery_level ?? 100,
-        signalStrength: d.connectivity_status === 'online' ? 3 : 0,
-        firmwareVersion: 'v1.0.0',
-        firmwareUpdateAvailable: false,
-        lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
-      }));
+      const mapped = allDevices.map(d => {
+        const status = computeConnectivity(d);
+        if (status === 'Offline' && d.connectivity_status === 'online') {
+          staleDeviceIds.push(d.id);
+        }
+        return {
+          id: d.id,
+          serialNumber: d.serial_number || d.id,
+          ownerName: d.owner_name || '',
+          connectivityStatus: status,
+          batteryLevel: d.battery_level ?? 100,
+          signalStrength: status === 'Online' ? 3 : 0,
+          firmwareVersion: 'v1.0.0',
+          firmwareUpdateAvailable: false,
+          lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
+        };
+      });
+
+      // Synchronize database status if any previously marked 'online' device has passed 6 hours
+      if (staleDeviceIds.length > 0) {
+        db.update(devices)
+          .set({ connectivity_status: 'offline' })
+          .where(inArray(devices.id, staleDeviceIds))
+          .catch(err => console.warn('Failed to update stale device status in DB:', err));
+      }
+
       res.json(mapped);
     } catch (err) {
       console.error('Error fetching devices:', err);
@@ -268,13 +348,20 @@ async function startServer() {
     try {
       const [d] = await db.select().from(devices).where(eq(devices.id, req.params.id)).limit(1);
       if (!d) return res.status(404).json({ error: 'Not found' });
+      const status = computeConnectivity(d);
+      if (status === 'Offline' && d.connectivity_status === 'online') {
+        db.update(devices)
+          .set({ connectivity_status: 'offline' })
+          .where(eq(devices.id, d.id))
+          .catch(() => {});
+      }
       res.json({
         id: d.id,
         serialNumber: d.serial_number || d.id,
         ownerName: d.owner_name || '',
-        connectivityStatus: d.connectivity_status === 'online' ? 'Online' : 'Offline',
+        connectivityStatus: status,
         batteryLevel: d.battery_level ?? 100,
-        signalStrength: d.connectivity_status === 'online' ? 3 : 0,
+        signalStrength: status === 'Online' ? 3 : 0,
         firmwareVersion: 'v1.0.0',
         firmwareUpdateAvailable: false,
         lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
@@ -287,6 +374,11 @@ async function startServer() {
 
   app.get('/api/alarms', async (req, res) => {
     try {
+      const deviceId = req.query.deviceId as string | undefined;
+      if (deviceId) {
+        const filteredAlarms = await db.select().from(events).where(eq(events.device_id, deviceId)).orderBy(desc(events.id)).limit(100);
+        return res.json(filteredAlarms);
+      }
       const allAlarms = await db.select().from(events).orderBy(desc(events.id)).limit(100);
       res.json(allAlarms);
     } catch (err) {
@@ -377,6 +469,326 @@ async function startServer() {
     } catch (err) {
       console.error('Error fetching telemetry:', err);
       res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // GET /api/analysis/qrs-motion/:deviceId?sessionId=xxx&start=xxx&end=xxx&range=xxx — Fast server-side peak-preserving downsampling
+  app.get('/api/analysis/qrs-motion/:deviceId', async (req, res) => {
+    try {
+      const { sessionId, start, end, range } = req.query;
+
+      // Available sessions list for selector
+      const availableSessions = await db
+        .select({
+          id: telemetry_sessions.id,
+          startTime: telemetry_sessions.estimated_start_time,
+          endTime: telemetry_sessions.estimated_end_time,
+          sampleCount: telemetry_sessions.sample_count,
+        })
+        .from(telemetry_sessions)
+        .where(eq(telemetry_sessions.device_id, req.params.deviceId))
+        .orderBy(desc(telemetry_sessions.estimated_end_time))
+        .limit(20)
+        .catch(() => []);
+
+      let queryCondition;
+      let targetSessionId = sessionId as string | undefined;
+
+      if (sessionId) {
+        queryCondition = sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.session_id} = ${sessionId}`;
+      } else if (start && end) {
+        queryCondition = sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.time} >= ${new Date(start as string)} AND ${readings.time} <= ${new Date(end as string)}`;
+      } else if (range === '24h') {
+        const since = new Date(Date.now() - 24 * 3600 * 1000);
+        queryCondition = sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.time} >= ${since}`;
+      } else if (range === '7d') {
+        const since = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+        queryCondition = sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.time} >= ${since}`;
+      } else if (range === '30d') {
+        const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+        queryCondition = sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.time} >= ${since}`;
+      } else {
+        // Default to latest session
+        if (availableSessions.length > 0) {
+          targetSessionId = availableSessions[0].id;
+        } else {
+          const [latest] = await db
+            .select({ session_id: readings.session_id })
+            .from(readings)
+            .where(eq(readings.device_id, req.params.deviceId))
+            .orderBy(desc(readings.time))
+            .limit(1);
+          if (latest) {
+            targetSessionId = latest.session_id;
+          }
+        }
+        if (targetSessionId) {
+          queryCondition = sql`${readings.device_id} = ${req.params.deviceId} AND ${readings.session_id} = ${targetSessionId}`;
+        }
+      }
+
+      if (!queryCondition) {
+        return res.json({
+          points: [],
+          sessions: availableSessions,
+          stats: {
+            totalSamples: 0,
+            durationSec: 0,
+            avgMotionMg: 1000,
+            motionArtifactCount: 0,
+            signalStability: 100,
+            estimatedBpm: null,
+          }
+        });
+      }
+
+      const rows = await db
+        .select()
+        .from(readings)
+        .where(queryCondition)
+        .orderBy(readings.time);
+
+      if (rows.length === 0) {
+        return res.json({
+          points: [],
+          sessions: availableSessions,
+          stats: {
+            totalSamples: 0,
+            durationSec: 0,
+            avgMotionMg: 1000,
+            motionArtifactCount: 0,
+            signalStability: 100,
+            estimatedBpm: null,
+          }
+        });
+      }
+
+      // ECG ADS1292R scale conversion: raw * (2.42 / (6 * 8388607)) * 1000
+      const ADS1292R_SCALE = (2.42 / (6 * 8388607)) * 1000;
+      const toEcgMv = (val: number | null | undefined): number => {
+        if (val === null || val === undefined || isNaN(val)) return 0;
+        if (Math.abs(val) > 20) return Number((val * ADS1292R_SCALE).toFixed(3));
+        return Number(val.toFixed(3));
+      };
+
+      const baseT = new Date(rows[0].time).getTime();
+      let sumMotion = 0;
+      let motionArtifactCount = 0;
+      const parsedRows = rows.map((r, idx) => {
+        const ax = r.accel_x || 0;
+        const ay = r.accel_y || 0;
+        const az = r.accel_z || 0;
+        const mag = Math.sqrt(ax * ax + ay * ay + az * az);
+        sumMotion += mag;
+        if (Math.abs(mag - 1000) > 250) {
+          motionArtifactCount++;
+        }
+        const t = new Date(r.time).getTime();
+        const relSecNum = (t - baseT) / 1000;
+        return {
+          idx,
+          t,
+          relSec: `${relSecNum.toFixed(2)}s`,
+          timeStr: new Date(r.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' }),
+          ecg: toEcgMv(r.ecg_ch2),
+          motion: Math.round(mag),
+        };
+      });
+
+      const total = parsedRows.length;
+      const avgMotionMg = Math.round(sumMotion / total);
+      const signalStability = Math.max(0, Math.min(100, Math.round(((total - motionArtifactCount) / total) * 100)));
+
+      // Estimate Heart Rate (BPM) from R-peaks on ecg_ch2
+      let peakCount = 0;
+      const ecgValues = parsedRows.map(p => p.ecg);
+      const maxEcg = Math.max(...ecgValues);
+      const minEcg = Math.min(...ecgValues);
+      const threshold = minEcg + (maxEcg - minEcg) * 0.65;
+      let inPeak = false;
+      for (let i = 0; i < ecgValues.length; i++) {
+        if (ecgValues[i] > threshold && !inPeak) {
+          peakCount++;
+          inPeak = true;
+        } else if (ecgValues[i] < threshold * 0.9) {
+          inPeak = false;
+        }
+      }
+
+      const durationMs = parsedRows[total - 1].t - parsedRows[0].t;
+      const durationSec = durationMs > 0 ? durationMs / 1000 : total / 250;
+      const estimatedBpm = durationSec > 0 ? Math.round((peakCount / durationSec) * 60) : 0;
+
+      // Peak-preserving Min-Max decimation to TARGET_DISPLAY_POINTS
+      const TARGET_DISPLAY_POINTS = 1000;
+      let displayPoints: any[] = [];
+      if (total <= TARGET_DISPLAY_POINTS) {
+        displayPoints = parsedRows;
+      } else {
+        const bucketSize = total / (TARGET_DISPLAY_POINTS / 2);
+        for (let b = 0; b < TARGET_DISPLAY_POINTS / 2; b++) {
+          const startIdx = Math.floor(b * bucketSize);
+          const endIdx = Math.min(total, Math.floor((b + 1) * bucketSize));
+          if (startIdx >= endIdx) continue;
+
+          let minIdx = startIdx;
+          let maxIdx = startIdx;
+          for (let i = startIdx + 1; i < endIdx; i++) {
+            if (parsedRows[i].ecg < parsedRows[minIdx].ecg) minIdx = i;
+            if (parsedRows[i].ecg > parsedRows[maxIdx].ecg) maxIdx = i;
+          }
+
+          if (minIdx < maxIdx) {
+            displayPoints.push(parsedRows[minIdx]);
+            displayPoints.push(parsedRows[maxIdx]);
+          } else if (minIdx > maxIdx) {
+            displayPoints.push(parsedRows[maxIdx]);
+            displayPoints.push(parsedRows[minIdx]);
+          } else {
+            displayPoints.push(parsedRows[minIdx]);
+          }
+        }
+      }
+
+      res.json({
+        sessionId: targetSessionId,
+        points: displayPoints,
+        sessions: availableSessions,
+        stats: {
+          totalSamples: total,
+          pointsReturned: displayPoints.length,
+          durationSec: Number(durationSec.toFixed(1)),
+          avgMotionMg,
+          motionArtifactCount,
+          signalStability,
+          estimatedBpm: estimatedBpm >= 40 && estimatedBpm <= 200 ? estimatedBpm : null,
+        }
+      });
+    } catch (err: any) {
+      console.error('Error in qrs-motion analysis:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // ECG ML Service proxy & fallback endpoints
+  app.get('/api/ml/analyses/:deviceId/latest', async (req, res) => {
+    const { deviceId } = req.params;
+    try {
+      if (ML_SERVICE_URL && ML_SERVICE_API_KEY) {
+        try {
+          const mlRes = await fetch(`${ML_SERVICE_URL}/v1/ecg/analyses/${encodeURIComponent(deviceId)}/latest`, {
+            headers: {
+              'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
+              'Accept': 'application/json',
+            },
+          });
+          if (mlRes.ok) {
+            const data = await mlRes.json();
+            return res.json(data);
+          }
+        } catch (fetchErr: any) {
+          console.warn('ML Service unreachable, checking database:', fetchErr.message);
+        }
+      }
+
+      // Query database directly if ecg_ml schema is applied
+      const directResult: any = await db.execute(sql`
+        SELECT job_id, schema_version, model_version, model_sha256, development_only,
+               device_id, input_start_ms, input_end_ms, label, quality, confidence,
+               requires_review, created_at
+        FROM ecg_ml.analysis_results
+        WHERE device_id = ${deviceId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).catch(() => null);
+
+      if (directResult && directResult.rows && directResult.rows.length > 0) {
+        return res.json(directResult.rows[0]);
+      }
+
+      return res.status(404).json({
+        error: 'No ML analysis available yet for this device',
+        requires_review: true,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/ml/analyses/:deviceId/latest:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/ml/analyses/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    try {
+      if (ML_SERVICE_URL && ML_SERVICE_API_KEY) {
+        try {
+          const mlRes = await fetch(`${ML_SERVICE_URL}/v1/ecg/analyses/${encodeURIComponent(deviceId)}?limit=${limit}`, {
+            headers: {
+              'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
+              'Accept': 'application/json',
+            },
+          });
+          if (mlRes.ok) {
+            const data = await mlRes.json();
+            return res.json(data);
+          }
+        } catch (fetchErr: any) {
+          console.warn('ML Service unreachable, checking database:', fetchErr.message);
+        }
+      }
+
+      const directResult: any = await db.execute(sql`
+        SELECT job_id, schema_version, model_version, model_sha256, development_only,
+               device_id, input_start_ms, input_end_ms, label, quality, confidence,
+               requires_review, created_at
+        FROM ecg_ml.analysis_results
+        WHERE device_id = ${deviceId}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `).catch(() => null);
+
+      return res.json(directResult?.rows || []);
+    } catch (err: any) {
+      console.error('Error in /api/ml/analyses/:deviceId:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/ml/jobs/:jobId', async (req, res) => {
+    const { jobId } = req.params;
+    try {
+      if (ML_SERVICE_URL && ML_SERVICE_API_KEY) {
+        try {
+          const mlRes = await fetch(`${ML_SERVICE_URL}/v1/ecg/jobs/${encodeURIComponent(jobId)}`, {
+            headers: {
+              'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
+              'Accept': 'application/json',
+            },
+          });
+          if (mlRes.ok) {
+            const data = await mlRes.json();
+            return res.json(data);
+          }
+        } catch (fetchErr: any) {
+          console.warn('ML Service unreachable, checking database:', fetchErr.message);
+        }
+      }
+
+      const directResult: any = await db.execute(sql`
+        SELECT *
+        FROM ecg_ml.analysis_jobs
+        WHERE job_id = ${jobId}::uuid
+        LIMIT 1
+      `).catch(() => null);
+
+      if (directResult && directResult.rows && directResult.rows.length > 0) {
+        return res.json(directResult.rows[0]);
+      }
+
+      return res.status(404).json({ error: 'Job not found' });
+    } catch (err: any) {
+      console.error('Error fetching ML job:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
   });
 

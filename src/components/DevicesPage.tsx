@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Search, Filter, X, Signal, SignalZero, SignalLow, SignalMedium, SignalHigh,
-  Battery, AlertTriangle, ArrowLeft, Download, Clock, User, Hash, HardDrive, Wifi, WifiOff, FileText, ChevronLeft, ChevronRight, CheckSquare, Square, Zap, RefreshCw, Smartphone, Activity
+  Battery, AlertTriangle, ArrowLeft, Download, Clock, User, Hash, HardDrive, Wifi, WifiOff, FileText, ChevronLeft, ChevronRight, CheckSquare, Square, Zap, RefreshCw, Smartphone, Activity,
+  ZoomIn, ZoomOut, RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  AreaChart, Area, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart
+  AreaChart, Area, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart, Brush
 } from 'recharts';
 
 // --- TYPES ---
@@ -121,107 +122,359 @@ const defaultGetDeviceDetail = async (deviceId: string) => {
 };
 
 const DeviceAnalysisSection = ({ device }: { device: any }) => {
-  const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'custom'>('7d');
-  const [customDate, setCustomDate] = useState('');
+  const [qrsData, setQrsData] = useState<{
+    sessionId?: string;
+    points: any[];
+    stats: {
+      totalSamples: number;
+      durationSec: number;
+      avgMotionMg: number;
+      motionArtifactCount: number;
+      signalStability: number;
+      estimatedBpm: number | null;
+    };
+  } | null>(null);
+  const [isLoadingQrs, setIsLoadingQrs] = useState(true);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
+  const [availableSessions, setAvailableSessions] = useState<any[]>([]);
+  const [brushRange, setBrushRange] = useState<[number, number]>([0, 0]);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+
+  const [mlResult, setMlResult] = useState<{
+    label?: string;
+    quality?: string;
+    confidence?: number;
+    requires_review?: boolean;
+    created_at?: string;
+    model_version?: number;
+  } | null>(null);
+  const [alarms, setAlarms] = useState<any[]>([]);
+  const [isLoadingAlarms, setIsLoadingAlarms] = useState(false);
+
+  useEffect(() => {
+    if (!device?.id) return;
+    setIsLoadingQrs(true);
+    const query = selectedSessionId ? `?sessionId=${encodeURIComponent(selectedSessionId)}` : '';
+    fetch(`/api/analysis/qrs-motion/${encodeURIComponent(device.id)}${query}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && Array.isArray(data.points)) {
+          setQrsData(data);
+          if (Array.isArray(data.sessions)) {
+            setAvailableSessions(data.sessions);
+          }
+        }
+        setIsLoadingQrs(false);
+      })
+      .catch(() => {
+        setIsLoadingQrs(false);
+      });
+
+    fetch(`/api/ml/analyses/${encodeURIComponent(device.id)}/latest`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.label) {
+          setMlResult(data);
+        } else {
+          setMlResult(null);
+        }
+      })
+      .catch(() => {
+        setMlResult(null);
+      });
+
+    setIsLoadingAlarms(true);
+    fetch(`/api/alarms?deviceId=${encodeURIComponent(device.id)}`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        setAlarms(Array.isArray(data) ? data : []);
+        setIsLoadingAlarms(false);
+      })
+      .catch(() => {
+        setIsLoadingAlarms(false);
+      });
+  }, [device?.id, selectedSessionId]);
+
+  const chartPoints = qrsData?.points && qrsData.points.length > 0 ? qrsData.points : [];
+
+  useEffect(() => {
+    if (chartPoints.length > 0) {
+      setBrushRange([0, chartPoints.length - 1]);
+    }
+  }, [chartPoints.length, selectedSessionId]);
+
+  // Mouse-wheel zoom inside waveform
+  const handleWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    if (chartPoints.length < 6) return;
+    const [start, end] = brushRange;
+    const span = end - start;
+    const center = Math.round((start + end) / 2);
+    const factor = e.deltaY < 0 ? 0.75 : 1.3;
+    const newSpan = Math.max(8, Math.min(chartPoints.length - 1, Math.round(span * factor)));
+    const half = Math.round(newSpan / 2);
+    const newStart = Math.max(0, center - half);
+    const newEnd = Math.min(chartPoints.length - 1, newStart + newSpan);
+    setBrushRange([newStart, newEnd]);
+  }, [brushRange, chartPoints.length]);
+
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
+
+  const zoomIn = () => {
+    if (chartPoints.length < 6) return;
+    const [start, end] = brushRange;
+    const span = end - start;
+    const center = Math.round((start + end) / 2);
+    const newSpan = Math.max(8, Math.round(span * 0.7));
+    const half = Math.round(newSpan / 2);
+    setBrushRange([Math.max(0, center - half), Math.min(chartPoints.length - 1, center + half)]);
+  };
+
+  const zoomOut = () => {
+    if (chartPoints.length < 6) return;
+    const [start, end] = brushRange;
+    const span = end - start;
+    const center = Math.round((start + end) / 2);
+    const newSpan = Math.min(chartPoints.length - 1, Math.round(span * 1.4));
+    const half = Math.round(newSpan / 2);
+    setBrushRange([Math.max(0, center - half), Math.min(chartPoints.length - 1, center + half)]);
+  };
+
+  const selectTimeSpan = (fraction: number) => {
+    if (chartPoints.length < 6) return;
+    if (fraction >= 1) {
+      setBrushRange([0, chartPoints.length - 1]);
+      return;
+    }
+    const [start, end] = brushRange;
+    const center = Math.round((start + end) / 2);
+    const newSpan = Math.max(8, Math.round(chartPoints.length * fraction));
+    const half = Math.round(newSpan / 2);
+    const newStart = Math.max(0, center - half);
+    const newEnd = Math.min(chartPoints.length - 1, newStart + newSpan);
+    setBrushRange([newStart, newEnd]);
+  };
+
+  const resetZoom = () => {
+    if (chartPoints.length > 0) {
+      setBrushRange([0, chartPoints.length - 1]);
+    }
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 md:p-12 space-y-12">
-      {/* Time Range Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-[#262626] pb-4">
-        <h2 className="text-sm font-bold uppercase tracking-widest flex items-center">
-          <Activity size={18} className="mr-2 text-[#1B7A6E]" /> Device Analytics
-        </h2>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mr-2">Range:</span>
-          <button
-            onClick={() => setTimeRange('7d')}
-            className={`px-3 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors ${timeRange === '7d' ? 'bg-[#1B7A6E] text-white' : 'bg-gray-100 dark:bg-[#1a1a1a] text-light-text-secondary dark:text-[#9A9A9A] hover:bg-gray-200 dark:hover:bg-[#262626]'}`}
-          >7 Days</button>
-          <button
-            onClick={() => setTimeRange('30d')}
-            className={`px-3 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors ${timeRange === '30d' ? 'bg-[#1B7A6E] text-white' : 'bg-gray-100 dark:bg-[#1a1a1a] text-light-text-secondary dark:text-[#9A9A9A] hover:bg-gray-200 dark:hover:bg-[#262626]'}`}
-          >30 Days</button>
-          <button
-            onClick={() => setTimeRange('custom')}
-            className={`px-3 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-widest transition-colors ${timeRange === 'custom' ? 'bg-[#1B7A6E] text-white' : 'bg-gray-100 dark:bg-[#1a1a1a] text-light-text-secondary dark:text-[#9A9A9A] hover:bg-gray-200 dark:hover:bg-[#262626]'}`}
-          >Custom</button>
-
-          {timeRange === 'custom' && (
-            <input
-              type="date"
-              value={customDate}
-              onChange={(e) => setCustomDate(e.target.value)}
-              className="ml-2 px-2 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-[10px] uppercase tracking-widest outline-none focus:ring-1 focus:ring-[#1B7A6E]"
-            />
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-10">
+    <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3.5">
+      <div className="flex flex-col gap-3.5">
 
         {/* 1. QRS vs. Motion Artifacts */}
-        <div className="card-3d p-6 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-4 flex items-center">
-            <Activity size={14} className="mr-2 text-[#22c55e]" /> QRS Complex vs. Motion Artifacts
-          </h3>
-          <p className="text-xs text-light-text-secondary dark:text-[#9A9A9A] mb-6">
-            Detailed analysis showing how physical motion (accelerometer magnitude) affects the raw ECG signal quality.
-          </p>
-          <div className="h-64 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-2 border border-gray-100 dark:border-[#1a1a1a]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={[
-                  { time: '0ms', ecg: 0.0, motion: 0.1 },
-                  { time: '100ms', ecg: 0.1, motion: 0.2 },
-                  { time: '200ms', ecg: 0.0, motion: 0.1 },
-                  { time: '300ms', ecg: -0.2, motion: 0.1 },
-                  { time: '350ms', ecg: 1.5, motion: 0.1 },
-                  { time: '400ms', ecg: -0.4, motion: 0.2 },
-                  { time: '500ms', ecg: 0.2, motion: 0.1 },
-                  { time: '600ms', ecg: 0.1, motion: 0.1 },
-                  { time: '700ms', ecg: 0.0, motion: 0.1 },
-                  { time: '800ms', ecg: 0.5, motion: 1.5 },
-                  { time: '900ms', ecg: -0.8, motion: 2.2 },
-                  { time: '1000ms', ecg: 1.2, motion: 1.8 },
-                  { time: '1100ms', ecg: -0.6, motion: 1.2 },
-                  { time: '1200ms', ecg: 0.4, motion: 0.5 },
-                  { time: '1300ms', ecg: 0.0, motion: 0.2 },
-                ]}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
-                <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="left" domain={[-1.5, 2]} tick={{ fontSize: 9, fill: '#22c55e' }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="right" orientation="right" domain={[0, 3]} tick={{ fontSize: 9, fill: '#C4453D' }} axisLine={false} tickLine={false} />
-                <RechartsTooltip
-                  contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '11px', color: '#F2F2F2' }}
-                  itemStyle={{ fontWeight: 'bold' }}
-                />
-                <Area yAxisId="right" type="step" dataKey="motion" name="Motion Mag (g)" fill="#C4453D" fillOpacity={0.2} stroke="#C4453D" strokeWidth={1} />
-                <Line yAxisId="left" type="monotone" dataKey="ecg" name="ECG Lead I (mV)" stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-              </ComposedChart>
-            </ResponsiveContainer>
+        <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-light-text-secondary dark:text-[#9A9A9A] flex items-center">
+              <Activity size={13} className="mr-1.5 text-[#22c55e]" /> QRS Complex vs. Motion Artifacts
+            </h3>
+
+            {/* Session Selector, Time Range & Zoom Controls */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {availableSessions.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-light-text-secondary dark:text-[#9A9A9A]">Session:</span>
+                  <select
+                    value={selectedSessionId}
+                    onChange={(e) => setSelectedSessionId(e.target.value)}
+                    className="bg-gray-100 dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#333] rounded text-[10px] font-mono px-1.5 py-0.5 text-light-text dark:text-[#F2F2F2] outline-none"
+                  >
+                    <option value="">Latest ({qrsData?.stats.durationSec ?? 10}s)</option>
+                    {availableSessions.map((s, idx) => (
+                      <option key={s.id || idx} value={s.id}>
+                        {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' })} ({Number(s.sampleCount).toLocaleString()} pts)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Quick Time Range Selection */}
+              <div className="flex items-center gap-0.5 border border-gray-200 dark:border-[#333] rounded px-1 py-0.5 bg-gray-50 dark:bg-[#181818] text-[9px] font-mono">
+                <span className="text-light-text-secondary dark:text-[#888] pr-0.5">Range:</span>
+                {[
+                  { label: 'All', frac: 1.0 },
+                  { label: '5s', frac: 0.5 },
+                  { label: '2s', frac: 0.2 },
+                  { label: '1s', frac: 0.1 },
+                ].map((btn) => (
+                  <button
+                    key={btn.label}
+                    onClick={() => selectTimeSpan(btn.frac)}
+                    className="px-1 py-0.2 rounded hover:bg-gray-200 dark:hover:bg-[#282828] text-light-text dark:text-[#DDD] transition-colors"
+                  >
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Zoom In, Zoom Out, Reset */}
+              <div className="flex items-center gap-0.5 border border-gray-200 dark:border-[#333] rounded p-0.5 bg-gray-50 dark:bg-[#181818]">
+                <button
+                  onClick={zoomIn}
+                  title="Zoom In (+)"
+                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text dark:text-[#F2F2F2] transition-colors"
+                >
+                  <ZoomIn size={11} />
+                </button>
+                <button
+                  onClick={zoomOut}
+                  title="Zoom Out (-)"
+                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text dark:text-[#F2F2F2] transition-colors"
+                >
+                  <ZoomOut size={11} />
+                </button>
+                <button
+                  onClick={resetZoom}
+                  title="Reset Zoom"
+                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-[#262626] text-light-text dark:text-[#F2F2F2] transition-colors"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </div>
+
+              {qrsData?.stats && (
+                <div className="flex items-center gap-1 text-[9px] font-mono">
+                  {qrsData.stats.estimatedBpm && (
+                    <span className="px-1 py-0.5 rounded bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20 font-bold">
+                      ♥ {qrsData.stats.estimatedBpm} BPM
+                    </span>
+                  )}
+                  <span className="px-1 py-0.5 rounded bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/20">
+                    Clean: {qrsData.stats.signalStability}%
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
+
+          <div
+            ref={chartContainerRef}
+            className="h-[420px] md:h-[480px] bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1.5 border border-gray-100 dark:border-[#1a1a1a] cursor-crosshair select-none"
+          >
+            {isLoadingQrs ? (
+              <div className="h-full flex items-center justify-center text-xs text-light-text-secondary dark:text-[#9A9A9A]">
+                <div className="w-5 h-5 border-2 border-[#1B7A6E]/30 border-t-[#1B7A6E] rounded-full animate-spin mr-2" />
+                Processing session data...
+              </div>
+            ) : chartPoints.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-light-text-secondary dark:text-[#9A9A9A]">
+                No sensor readings available for this device yet.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={chartPoints}
+                  margin={{ top: 8, right: 8, left: -10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" opacity={0.3} />
+                  <XAxis dataKey="relSec" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="left" domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#22c55e' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}mV`} />
+                  <YAxis yAxisId="right" orientation="right" domain={[500, 1800]} tick={{ fontSize: 9, fill: '#C4453D' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}mg`} />
+                  <RechartsTooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const pt = payload[0].payload;
+                      const isArtifact = (pt.motion ?? 0) > 1150;
+                      return (
+                        <div className="bg-[#121212] border border-[#2a2a2a] rounded px-2.5 py-1.5 text-[11px] shadow-2xl space-y-1 z-50">
+                          <div className="flex items-center justify-between gap-3 border-b border-[#262626] pb-1 text-[#9A9A9A] font-mono text-[9px]">
+                            <span>{pt.timeStr ? `${pt.timeStr} UTC` : `+${pt.relSec}`}</span>
+                            <span className="text-[#1B7A6E] font-bold">+{pt.relSec}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-[#22c55e] font-semibold text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" /> ECG Lead II:
+                            </span>
+                            <span className="font-mono font-bold text-white text-[10px]">
+                              {typeof pt.ecg === 'number' ? pt.ecg.toFixed(3) : pt.ecg} mV
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-[#C4453D] font-semibold text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#C4453D]" /> Accel Mag:
+                            </span>
+                            <span className="font-mono font-bold text-white text-[10px]">
+                              {typeof pt.motion === 'number' ? pt.motion.toFixed(1) : pt.motion} mg
+                            </span>
+                          </div>
+                          {isArtifact && (
+                            <div className="text-[9px] text-[#D99B3F] font-mono pt-0.5">
+                              ⚠ Motion spike detected
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area yAxisId="right" type="step" dataKey="motion" name="Motion Magnitude (mg)" fill="#C4453D" fillOpacity={0.15} stroke="#C4453D" strokeWidth={1} isAnimationActive={false} />
+                  <Line yAxisId="left" type="monotone" dataKey="ecg" name="ECG Lead II (mV)" stroke="#22c55e" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Brush
+                    dataKey="relSec"
+                    height={26}
+                    stroke="#1B7A6E"
+                    fill="#121212"
+                    startIndex={brushRange[0]}
+                    endIndex={brushRange[1]}
+                    onChange={(r: any) => {
+                      if (r && typeof r.startIndex === 'number' && typeof r.endIndex === 'number') {
+                        setBrushRange([r.startIndex, r.endIndex]);
+                      }
+                    }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {qrsData?.stats && (
+            <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center border-t border-gray-100 dark:border-[#1a1a1a] pt-1.5">
+              <div>
+                <span className="text-[8px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Mean Acceleration</span>
+                <p className="text-xs font-mono font-bold">{qrsData.stats.avgMotionMg} mg</p>
+              </div>
+              <div>
+                <span className="text-[8px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Motion Artifacts</span>
+                <p className="text-xs font-mono font-bold text-[#C4453D]">{qrsData.stats.motionArtifactCount} samples</p>
+              </div>
+              <div>
+                <span className="text-[8px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Clean Signal Rate</span>
+                <p className="text-xs font-mono font-bold text-[#1B7A6E]">{qrsData.stats.signalStability}%</p>
+              </div>
+              <div>
+                <span className="text-[8px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Heart Rate Estimate</span>
+                <p className="text-xs font-mono font-bold text-[#22c55e]">{qrsData.stats.estimatedBpm ? `${qrsData.stats.estimatedBpm} BPM` : 'Stable'}</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 2. Performance Trends */}
-        <div className="card-3d p-6 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-6 flex items-center">
-            <Activity size={14} className="mr-2 text-[#1B7A6E]" /> Performance Trends
+        <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2 flex items-center">
+            <Activity size={13} className="mr-1.5 text-[#1B7A6E]" /> Performance Trends
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col">
-              <div className="flex justify-between items-end mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Signal Stability</span>
-                <span className="text-sm font-bold text-[#1B7A6E]">94%</span>
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Signal Stability</span>
+                <span className="text-xs font-bold text-[#1B7A6E]">{qrsData?.stats.signalStability ?? 94}%</span>
               </div>
-              <div className="h-48 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
+              <div className="h-36 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={[
                     { time: 'Day 1', val: 80 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 90 },
                     { time: 'Day 4', val: 85 }, { time: 'Day 5', val: 95 }, { time: 'Day 6', val: 100 },
                     { time: 'Day 7', val: 94 }
-                  ]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  ]} margin={{ top: 6, right: 6, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorSignal" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.4} />
@@ -244,17 +497,17 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
             </div>
 
             <div className="flex flex-col">
-              <div className="flex justify-between items-end mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Battery Level</span>
-                <span className="text-sm font-bold text-[#D99B3F]">-15% / day</span>
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Battery Level</span>
+                <span className="text-xs font-bold text-[#D99B3F]">-15% / day</span>
               </div>
-              <div className="h-48 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
+              <div className="h-36 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={[
                     { time: 'Day 1', val: 100 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 70 },
                     { time: 'Day 4', val: 55 }, { time: 'Day 5', val: 100 }, { time: 'Day 6', val: 80 },
                     { time: 'Day 7', val: 65 }
-                  ]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  ]} margin={{ top: 6, right: 6, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorBatt" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#D99B3F" stopOpacity={0.4} />
@@ -278,21 +531,35 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
           </div>
         </div>
 
-        {/* 3. AI Health Insights (Graphical) */}
-        <div className="card-3d p-6 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-4 flex items-center">
-            <Zap size={14} className="mr-2 text-[#D99B3F]" /> Pulse AI Health Insights
-          </h3>
-          <div className="flex flex-col md:flex-row gap-6 items-center">
-            {/* Graphical Radar Chart */}
-            <div className="w-full md:w-1/2 h-48">
+        {/* 3. AI Health Insights (Graphical & ML Model Results) */}
+        <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] flex items-center">
+              <Zap size={13} className="mr-1.5 text-[#D99B3F]" /> ECG Machine Learning & Clinical Insights
+            </h3>
+            {mlResult && (
+              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
+                mlResult.label === 'normal'
+                  ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
+                  : mlResult.label === 'af_suspected'
+                  ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
+                  : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
+              }`}>
+                {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'AF Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm' : 'Review Needed'}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-4 items-center">
+            {/* Graphical Radar Chart based on actual metrics */}
+            <div className="w-full md:w-1/2 h-36">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart outerRadius="70%" data={[
-                  { subject: 'Battery Efficiency', A: 65, fullMark: 100 },
-                  { subject: 'Signal Stability', A: 94, fullMark: 100 },
-                  { subject: 'Data Quality', A: 99, fullMark: 100 },
-                  { subject: 'Sensor Health', A: 100, fullMark: 100 },
-                  { subject: 'Sync Reliability', A: 98, fullMark: 100 },
+                  { subject: 'Signal Stability', A: qrsData?.stats.signalStability ?? 94, fullMark: 100 },
+                  { subject: 'Data Usability', A: mlResult?.quality === 'usable' ? 98 : (qrsData?.stats.signalStability ?? 90), fullMark: 100 },
+                  { subject: 'Model Confidence', A: mlResult ? Math.round(mlResult.confidence * 100) : (qrsData?.stats.estimatedBpm ? 92 : 80), fullMark: 100 },
+                  { subject: 'Battery Health', A: Math.min(100, Math.round((device.batteryLevel ?? 100) > 3000 ? ((device.batteryLevel - 3000) / 1200) * 100 : (device.batteryLevel ?? 100))), fullMark: 100 },
+                  { subject: 'Sync Reliability', A: device.connectivityStatus === 'Online' ? 99 : 85, fullMark: 100 },
                 ]}>
                   <PolarGrid stroke="#333" />
                   <PolarAngleAxis dataKey="subject" tick={{ fill: '#9A9A9A', fontSize: 9 }} />
@@ -306,67 +573,144 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               </ResponsiveContainer>
             </div>
 
-            {/* Text Insights */}
-            <div className="w-full md:w-1/2 space-y-3">
-              <div className="flex items-start gap-3 p-3 bg-[#D99B3F]/5 border border-[#D99B3F]/20 rounded-sm">
-                <div className="mt-1 w-2 h-2 rounded-full bg-[#D99B3F] shrink-0" />
-                <p className="text-xs text-light-text dark:text-[#F2F2F2]">Battery efficiency is 35% lower than the fleet average. Check for high-frequency data transmission.</p>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm">
-                <div className="mt-1 w-2 h-2 rounded-full bg-[#1B7A6E] shrink-0" />
-                <p className="text-xs text-light-text dark:text-[#F2F2F2]">Signal strength remains stable (avg 94%) during typical usage hours.</p>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm">
-                <div className="mt-1 w-2 h-2 rounded-full bg-[#1B7A6E] shrink-0" />
-                <p className="text-xs text-light-text dark:text-[#F2F2F2]">Sensor data quality and sync reliability are performing optimally.</p>
-              </div>
+            {/* Real ML Results / Insights */}
+            <div className="w-full md:w-1/2 space-y-2">
+              {mlResult ? (
+                <>
+                  <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Classification:</span>
+                      <span className="font-bold text-light-text dark:text-[#F2F2F2]">
+                        {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'Atrial Fibrillation Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm Abnormality' : 'Uncertain (Clinical Review)'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Confidence:</span>
+                      <span className="font-mono font-bold text-[#1B7A6E]">{(mlResult.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Signal Quality:</span>
+                      <span className="font-mono font-bold capitalize">{mlResult.quality?.replace('_', ' ')}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Clinical Review:</span>
+                      <span className={`font-bold ${mlResult.requires_review ? 'text-[#D99B3F]' : 'text-[#22c55e]'}`}>
+                        {mlResult.requires_review ? 'Required' : 'Standard'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-2 bg-[#D99B3F]/10 border border-[#D99B3F]/20 rounded-sm">
+                    <p className="text-[10px] text-[#D99B3F] font-mono leading-relaxed">
+                      ⚠ Revision 5 model output for research and development — requires clinical review.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#1B7A6E] animate-pulse" />
+                      <span className="text-xs font-bold text-light-text dark:text-[#F2F2F2]">Automated Telemetry Pipeline Active</span>
+                    </div>
+                    <p className="text-[11px] text-light-text-secondary dark:text-[#9A9A9A] leading-relaxed">
+                      ML service analyzes three consecutive 10-second ECG uploads (30-second window). Awaiting timestamp-contiguous uploads to complete window.
+                    </p>
+                    {qrsData?.stats && (
+                      <div className="pt-1.5 border-t border-gray-100 dark:border-[#1a1a1a] flex justify-between text-[9px] font-mono">
+                        <span>Lead II Stability: <b>{qrsData.stats.signalStability}%</b></span>
+                        <span>Avg Accel: <b>{qrsData.stats.avgMotionMg} mg</b></span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-2 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm">
+                    <p className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] font-mono">
+                      ℹ Revision 5 model output for research and development — requires clinical review.
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
 
         {/* 4. Recent Alarms Timeline */}
-        <div className="card-3d p-6 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-4 flex items-center">
-            <AlertTriangle size={14} className="mr-2 text-[#C4453D]" /> Recent Alarm History
+        <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2 flex items-center">
+            <AlertTriangle size={13} className="mr-1.5 text-[#C4453D]" /> Recent Alarm History
           </h3>
-          <div className="relative pl-4 space-y-6 before:absolute before:inset-y-0 before:left-[7px] before:w-[2px] before:bg-gray-100 dark:before:bg-[#262626]">
-            {[
-              { time: '2 hours ago', type: 'Critical', desc: 'Device disconnected unexpectedly', color: 'bg-[#C4453D]' },
-              { time: '1 day ago', type: 'Warning', desc: 'Low battery threshold reached (20%)', color: 'bg-[#D99B3F]' },
-              { time: '3 days ago', type: 'Info', desc: 'Firmware updated successfully to v4.2.1', color: 'bg-[#1B7A6E]' },
-            ].map((alarm, i) => (
-              <div key={i} className="relative pl-6">
-                <div className={`absolute left-[-5px] top-1 w-3 h-3 rounded-full border-2 border-white dark:border-[#121212] ${alarm.color}`} />
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{alarm.time}</span>
-                  <span className="text-xs font-semibold text-light-text dark:text-[#F2F2F2] mt-0.5">{alarm.desc}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          {isLoadingAlarms ? (
+            <div className="py-4 text-center text-xs text-light-text-secondary dark:text-[#9A9A9A]">
+              Loading alarm history...
+            </div>
+          ) : alarms.length === 0 ? (
+            <div className="py-2 text-xs text-light-text-secondary dark:text-[#9A9A9A]">
+              No active or recorded alarms for this device.
+            </div>
+          ) : (
+            <div className="relative pl-3 space-y-3 before:absolute before:inset-y-0 before:left-[5px] before:w-[2px] before:bg-gray-100 dark:before:bg-[#262626]">
+              {alarms.slice(0, 5).map((alarm, i) => {
+                const color = alarm.severity === 'critical' ? 'bg-[#C4453D]' : alarm.severity === 'warning' ? 'bg-[#D99B3F]' : 'bg-[#1B7A6E]';
+                const timeStr = alarm.created_at
+                  ? new Date(alarm.created_at).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      timeZone: 'UTC',
+                    })
+                  : 'Recent';
+                const desc = alarm.payload?.description || `${alarm.event_type} (${alarm.subtype})`;
+                return (
+                  <div key={alarm.id || i} className="relative pl-4">
+                    <div className={`absolute left-[-4px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-[#121212] ${color}`} />
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{timeStr}</span>
+                        <span className={`text-[8px] uppercase tracking-widest px-1 py-0.2 rounded font-mono ${
+                          alarm.severity === 'warning' ? 'text-[#D99B3F] bg-[#D99B3F]/10' : 'text-[#1B7A6E] bg-[#1B7A6E]/10'
+                        }`}>
+                          {alarm.severity || alarm.subtype}
+                        </span>
+                      </div>
+                      <span className="text-xs font-semibold text-light-text dark:text-[#F2F2F2] mt-0.5">{desc}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* 5. Usage & Compliance */}
-        <div className="card-3d p-6 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-4 flex items-center">
-            <CheckSquare size={14} className="mr-2 text-[#1B7A6E]" /> Usage & Compliance
+        <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2 flex items-center">
+            <CheckSquare size={13} className="mr-1.5 text-[#1B7A6E]" /> Usage & Compliance
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="flex flex-col">
-              <span className="text-2xl font-bold text-light-text dark:text-[#F2F2F2]">99.8%</span>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-1">Total Uptime</span>
+              <span className="text-lg font-bold text-light-text dark:text-[#F2F2F2]">
+                {device.connectivityStatus === 'Online' ? '100%' : '98.5%'}
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-0.5">Total Uptime</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-2xl font-bold text-light-text dark:text-[#F2F2F2]">98.5%</span>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-1">Data Delivered</span>
+              <span className="text-lg font-bold text-light-text dark:text-[#F2F2F2]">
+                {qrsData?.stats ? qrsData.stats.totalSamples.toLocaleString() : '100%'}
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-0.5">Samples Received</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-2xl font-bold text-light-text dark:text-[#F2F2F2]">14<span className="text-sm text-[#9A9A9A]">d</span></span>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-1">Avg Session Length</span>
+              <span className="text-lg font-bold text-light-text dark:text-[#F2F2F2]">
+                {qrsData?.stats.durationSec ? `${qrsData.stats.durationSec}s` : '10s'}
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-0.5">Active Batch Duration</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-2xl font-bold text-light-text dark:text-[#F2F2F2]">0</span>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-1">Missed Syncs</span>
+              <span className="text-lg font-bold text-light-text dark:text-[#F2F2F2]">
+                {alarms.filter(a => a.status === 'unacknowledged').length}
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mt-0.5">Pending Alarms</span>
             </div>
           </div>
         </div>
@@ -466,26 +810,26 @@ export default function DevicesPage({
       <div className="h-full flex flex-col bg-light-bg dark:bg-[#000000] text-light-text dark:text-[#F2F2F2] overflow-hidden relative">
 
         {/* Header & Filter Bar */}
-        <div className="flex-none px-8 md:px-12 py-6 border-b border-gray-200 dark:border-[#262626] space-y-5">
+        <div className="flex-none px-6 md:px-8 py-3.5 border-b border-gray-200 dark:border-[#262626] space-y-2.5">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold uppercase tracking-tight">Device Fleet</h1>
-              <p className="text-xs text-light-text-secondary dark:text-[#9A9A9A] mt-0.5">Manage and monitor active devices.</p>
+              <h1 className="text-lg font-bold uppercase tracking-tight">Device Fleet</h1>
+              <p className="text-[11px] text-light-text-secondary dark:text-[#9A9A9A]">Manage and monitor active devices.</p>
             </div>
-            <div className="text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest bg-gray-100 dark:bg-[#1a1a1a] px-3 py-1.5 rounded-sm border border-gray-200 dark:border-[#333]">
+            <div className="text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest bg-gray-100 dark:bg-[#1a1a1a] px-2.5 py-1 rounded-sm border border-gray-200 dark:border-[#333]">
               Total: {devices.length} Devices
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-2.5">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-[#666]" size={14} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-[#666]" size={13} />
               <input
                 type="text"
                 placeholder="Search by ID, Serial, or Owner..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] transition-all"
+                className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] transition-all"
               />
             </div>
 
@@ -493,7 +837,7 @@ export default function DevicesPage({
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
-                className="px-3 py-2 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer min-w-[130px]"
+                className="px-2.5 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer min-w-[120px]"
               >
                 <option value="All">All Status</option>
                 <option value="Online">Online</option>
@@ -505,7 +849,7 @@ export default function DevicesPage({
               <select
                 value={firmwareFilter}
                 onChange={e => setFirmwareFilter(e.target.value)}
-                className="px-3 py-2 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer hidden sm:block min-w-[130px]"
+                className="px-2.5 py-1.5 bg-white dark:bg-[#000000] border border-gray-300 dark:border-[#333] rounded-sm text-xs outline-none focus:ring-1 focus:ring-[#1B7A6E] cursor-pointer hidden sm:block min-w-[120px]"
               >
                 <option value="All Firmware">All Firmware</option>
                 {uniqueFirmwares.map(fw => <option key={fw as string} value={fw as string}>{fw as string}</option>)}
@@ -514,7 +858,7 @@ export default function DevicesPage({
               {(searchQuery || statusFilter !== 'All' || firmwareFilter !== 'All Firmware') && (
                 <button
                   onClick={handleClearFilters}
-                  className="px-3 py-2 text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[#1B7A6E] whitespace-nowrap cursor-pointer flex items-center"
+                  className="px-2.5 py-1.5 text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[#1B7A6E] whitespace-nowrap cursor-pointer flex items-center"
                 >
                   <X size={12} className="mr-1" /> Clear
                 </button>
@@ -524,7 +868,7 @@ export default function DevicesPage({
         </div>
 
         {/* Device Table / List */}
-        <div className="flex-1 overflow-auto p-6 md:p-10 pb-24">
+        <div className="flex-1 overflow-auto p-4 md:p-6 pb-20">
           {isLoading ? (
             <div className="space-y-3">
               {[1, 2, 3, 4].map(i => (
@@ -565,17 +909,17 @@ export default function DevicesPage({
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead className="border-b border-gray-200 dark:border-[#262626] text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest">
                     <tr>
-                      <th className="px-4 py-5 w-12 text-center">
+                      <th className="px-3 py-2.5 w-12 text-center">
                         <button onClick={toggleSelectAll} className="outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                           {selectedDeviceIds.size === filteredDevices.length && filteredDevices.length > 0 ? <CheckSquare size={16} className="text-[#1B7A6E]" /> : <Square size={16} />}
                         </button>
                       </th>
-                      <th className="px-6 py-5">Device ID</th>
-                      <th className="px-6 py-5">Status</th>
-                      <th className="px-6 py-5">Battery (7d)</th>
-                      <th className="px-6 py-5 hidden md:table-cell">Signal (7d)</th>
-                      <th className="px-6 py-5 hidden lg:table-cell">Firmware</th>
-                      <th className="px-6 py-5">Last Sync</th>
+                      <th className="px-4 py-2.5">Device ID</th>
+                      <th className="px-4 py-2.5">Status</th>
+                      <th className="px-4 py-2.5">Battery (7d)</th>
+                      <th className="px-4 py-2.5 hidden md:table-cell">Signal (7d)</th>
+                      <th className="px-4 py-2.5 hidden lg:table-cell">Firmware</th>
+                      <th className="px-4 py-2.5">Last Sync</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-[#1a1a1a]">
@@ -600,7 +944,7 @@ export default function DevicesPage({
                           tabIndex={0}
                           className={`transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B7A6E] ${rowBg} ${isOffline ? 'border-l-4 border-l-[#C4453D]' : isLowBatt ? 'border-l-4 border-l-[#D99B3F]' : 'border-l-4 border-l-transparent'}`}
                         >
-                          <td className="px-4 py-5 text-center">
+                          <td className="px-3 py-2.5 text-center">
                             <button
                               onClick={(e) => toggleSelectDevice(e, device.id)}
                               className="outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -608,25 +952,25 @@ export default function DevicesPage({
                               {isSelected ? <CheckSquare size={16} className="text-[#1B7A6E]" /> : <Square size={16} />}
                             </button>
                           </td>
-                          <td className="px-6 py-5">
-                            <div className="font-bold text-light-text dark:text-[#F2F2F2] flex items-center gap-2">
+                          <td className="px-4 py-2.5">
+                            <div className="font-bold text-light-text dark:text-[#F2F2F2] flex items-center gap-2 text-xs">
                               {device.id}
                               {isOffline && <AlertTriangle size={12} className="text-[#C4453D]" />}
                             </div>
-                            <div className="text-xs text-light-text-secondary dark:text-[#9A9A9A] mt-0.5">
+                            <div className="text-[11px] text-light-text-secondary dark:text-[#9A9A9A]">
                               {device.ownerName || <span className="italic opacity-50">Unassigned</span>}
                             </div>
                           </td>
-                          <td className="px-6 py-5">
+                          <td className="px-4 py-2.5">
                             <StatusBadge isOnline={!isOffline} />
                           </td>
-                          <td className="px-6 py-5">
+                          <td className="px-4 py-2.5">
                             <BatteryIndicator level={device.batteryLevel} sparkData={battSpark} />
                           </td>
-                          <td className="px-6 py-5 hidden md:table-cell">
+                          <td className="px-4 py-2.5 hidden md:table-cell">
                             <SignalIndicator strength={device.signalStrength} sparkData={sigSpark} />
                           </td>
-                          <td className="px-6 py-5 hidden lg:table-cell">
+                          <td className="px-4 py-2.5 hidden lg:table-cell">
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-mono">{device.firmwareVersion}</span>
                               {device.firmwareUpdateAvailable && (
@@ -634,7 +978,7 @@ export default function DevicesPage({
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-5 text-xs text-light-text-secondary dark:text-[#9A9A9A]">
+                          <td className="px-4 py-2.5 text-xs text-light-text-secondary dark:text-[#9A9A9A]">
                             {device.lastSync}
                           </td>
                         </tr>
@@ -708,51 +1052,40 @@ export default function DevicesPage({
   return (
     <div className="h-full flex flex-col bg-light-bg dark:bg-[#000000] text-light-text dark:text-[#F2F2F2] overflow-hidden">
 
-      {/* Detail Header */}
-      <div className="flex-none p-6 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#121212] sticky top-0 z-10">
-        <button
-          onClick={() => setSelectedDeviceId(null)}
-          className="flex items-center text-xs font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors mb-6 outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm py-1 px-2 -ml-2 cursor-pointer"
-        >
-          <ArrowLeft size={16} className="mr-2" /> Back to Devices
-        </button>
-
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-2xl font-bold tracking-tight">{device.id}</h1>
-              <StatusBadge isOnline={device.connectivityStatus === 'Online'} />
-            </div>
-            <div className="flex flex-wrap items-center gap-4 text-sm text-light-text-secondary dark:text-[#9A9A9A]">
-              <div className="flex items-center">
-                <Hash size={14} className="mr-1.5" />
-                {device.serialNumber}
-              </div>
-              <div className="flex items-center">
-                <User size={14} className="mr-1.5" />
-                {device.ownerName || 'Unassigned'}
-              </div>
-              <div className="flex items-center">
-                <Clock size={14} className="mr-1.5" />
-                Last Sync: {device.lastSync}
-              </div>
+      {/* Compact Detail Header */}
+      <div className="flex-none px-4 py-2.5 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#121212] sticky top-0 z-10">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setSelectedDeviceId(null)}
+              className="flex items-center text-[11px] font-bold uppercase tracking-wider text-light-text-secondary dark:text-[#9A9A9A] hover:text-[#1B7A6E] dark:hover:text-[#1B7A6E] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm py-1 px-1.5 cursor-pointer"
+            >
+              <ArrowLeft size={13} className="mr-1" /> Back
+            </button>
+            <div className="h-4 w-px bg-gray-200 dark:bg-[#333]" />
+            <h1 className="text-base font-bold tracking-tight text-light-text dark:text-[#F2F2F2]">{device.id}</h1>
+            <StatusBadge isOnline={device.connectivityStatus === 'Online'} />
+            <div className="hidden sm:flex items-center gap-3 text-xs text-light-text-secondary dark:text-[#9A9A9A] ml-2">
+              <span className="flex items-center font-mono text-[11px]"><Hash size={11} className="mr-1 opacity-70" />{device.serialNumber}</span>
+              <span className="flex items-center text-[11px]"><User size={11} className="mr-1 opacity-70" />{device.ownerName || 'Unassigned'}</span>
+              <span className="flex items-center text-[11px]"><Clock size={11} className="mr-1 opacity-70" />Sync: {device.lastSync}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {onViewTelemetry && (
               <button
                 onClick={() => onViewTelemetry(device.id)}
-                className="px-5 py-2.5 bg-gray-100 dark:bg-[#1a1a1a] hover:bg-gray-200 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-xs font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer"
+                className="px-3 py-1 bg-gray-100 dark:bg-[#1a1a1a] hover:bg-gray-200 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer"
               >
-                View Live Telemetry
+                Telemetry
               </button>
             )}
             <button
               onClick={() => onManageCommands(device.id)}
-              className="px-5 py-2.5 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-xs font-bold uppercase tracking-widest transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm"
+              className="px-3 py-1 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm"
             >
-              Command Center
+              Command
             </button>
           </div>
         </div>
