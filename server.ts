@@ -400,6 +400,51 @@ async function startServer() {
     }
   });
 
+  // GET /api/db-status  — live row counts + latest record timestamps for all tables
+  app.get('/api/db-status', async (req, res) => {
+    try {
+      const [
+        devicesCount,
+        readingsCount,
+        sessionsCount,
+        eventsCount,
+        networkCount,
+        mlPacketsCount,
+        mlJobsCount,
+        mlResultsCount,
+      ] = await Promise.all([
+        db.select({ count: sql<number>`count(*)` }).from(devices),
+        db.select({ count: sql<number>`count(*)`, latest: sql<string>`max(time)` }).from(readings),
+        db.select({ count: sql<number>`count(*)`, latest: sql<string>`max(received_at)` }).from(telemetry_sessions),
+        db.select({ count: sql<number>`count(*)`, latest: sql<string>`max(created_at)` }).from(events),
+        db.select({ count: sql<number>`count(*)`, latest: sql<string>`max(recorded_at)` }).from(network_location),
+        // ecg_ml schema — raw SQL because Drizzle schema doesn't include these
+        db.execute(sql`SELECT count(*)::int AS count, max(received_at) AS latest FROM ecg_ml.upload_packets`),
+        db.execute(sql`SELECT count(*)::int AS count, max(updated_at) AS latest FROM ecg_ml.analysis_jobs`),
+        db.execute(sql`SELECT count(*)::int AS count, max(created_at) AS latest FROM ecg_ml.analysis_results`),
+      ]);
+
+      res.json({
+        public: {
+          devices:          { count: Number(devicesCount[0].count), latest: null },
+          readings:         { count: Number(readingsCount[0].count), latest: readingsCount[0].latest || null },
+          telemetry_sessions: { count: Number(sessionsCount[0].count), latest: sessionsCount[0].latest || null },
+          events:           { count: Number(eventsCount[0].count), latest: eventsCount[0].latest || null },
+          network_location: { count: Number(networkCount[0].count), latest: networkCount[0].latest || null },
+        },
+        ecg_ml: {
+          upload_packets:   { count: Number((mlPacketsCount.rows[0] as any)?.count ?? 0), latest: (mlPacketsCount.rows[0] as any)?.latest || null },
+          analysis_jobs:    { count: Number((mlJobsCount.rows[0] as any)?.count ?? 0), latest: (mlJobsCount.rows[0] as any)?.latest || null },
+          analysis_results: { count: Number((mlResultsCount.rows[0] as any)?.count ?? 0), latest: (mlResultsCount.rows[0] as any)?.latest || null },
+        },
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Error fetching DB status:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
   app.get('/api/alarms', async (req, res) => {
     try {
       const deviceId = req.query.deviceId as string | undefined;

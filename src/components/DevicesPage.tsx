@@ -9,6 +9,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   AreaChart, Area, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart, Brush
 } from 'recharts';
+import DbStatusPanel from './DbStatusPanel';
 
 // --- TYPES ---
 export interface DevicesPageProps {
@@ -991,7 +992,11 @@ export default function DevicesPage({
           )}
         </div>
 
-        {/* Bulk Action Toolbar */}
+        {/* Database Status Panel */}
+        <div className="flex-none px-4 md:px-6 pb-4">
+          <DbStatusPanel />
+        </div>
+
         <AnimatePresence>
           {selectedDeviceIds.size > 0 && (
             <motion.div
