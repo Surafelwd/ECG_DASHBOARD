@@ -2,14 +2,14 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Search, Filter, X, Signal, SignalZero, SignalLow, SignalMedium, SignalHigh,
   Battery, AlertTriangle, ArrowLeft, Download, Clock, User, Hash, HardDrive, Wifi, WifiOff, FileText, ChevronLeft, ChevronRight, CheckSquare, Square, Zap, RefreshCw, Smartphone, Activity,
-  ZoomIn, ZoomOut, RotateCcw
+  ZoomIn, ZoomOut, RotateCcw, Database
 } from 'lucide-react';
+import DeviceDatabaseTables from './DeviceDatabaseTables';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   AreaChart, Area, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart, Brush
 } from 'recharts';
-import DbStatusPanel from './DbStatusPanel';
 
 // --- TYPES ---
 export interface DevicesPageProps {
@@ -46,8 +46,8 @@ function Sparkline({ data, color = '#1B7A6E', height = 20, width = 50 }: { data:
 
 const StatusBadge = ({ isOnline }: { isOnline: boolean }) => (
   <span className={`inline-flex items-center px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-widest ${isOnline
-      ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/20'
-      : 'bg-[#C4453D]/10 text-[#C4453D] border border-[#C4453D]/20'
+    ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/20'
+    : 'bg-[#C4453D]/10 text-[#C4453D] border border-[#C4453D]/20'
     }`}>
     <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isOnline ? 'bg-[#1B7A6E]' : 'bg-[#C4453D]'}`}></span>
     {isOnline ? 'Online' : 'Offline'}
@@ -539,13 +539,12 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               <Zap size={13} className="mr-1.5 text-[#D99B3F]" /> ECG Machine Learning & Clinical Insights
             </h3>
             {mlResult && (
-              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
-                mlResult.label === 'normal'
+              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${mlResult.label === 'normal'
                   ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
                   : mlResult.label === 'af_suspected'
-                  ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
-                  : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
-              }`}>
+                    ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
+                    : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
+                }`}>
                 {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'AF Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm' : 'Review Needed'}
               </span>
             )}
@@ -653,13 +652,13 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                 const color = alarm.severity === 'critical' ? 'bg-[#C4453D]' : alarm.severity === 'warning' ? 'bg-[#D99B3F]' : 'bg-[#1B7A6E]';
                 const timeStr = alarm.created_at
                   ? new Date(alarm.created_at).toLocaleString([], {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                      timeZone: 'UTC',
-                    })
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    timeZone: 'UTC',
+                  })
                   : 'Recent';
                 const desc = alarm.payload?.description || `${alarm.event_type} (${alarm.subtype})`;
                 return (
@@ -668,9 +667,8 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                     <div className="flex flex-col">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{timeStr}</span>
-                        <span className={`text-[8px] uppercase tracking-widest px-1 py-0.2 rounded font-mono ${
-                          alarm.severity === 'warning' ? 'text-[#D99B3F] bg-[#D99B3F]/10' : 'text-[#1B7A6E] bg-[#1B7A6E]/10'
-                        }`}>
+                        <span className={`text-[8px] uppercase tracking-widest px-1 py-0.2 rounded font-mono ${alarm.severity === 'warning' ? 'text-[#D99B3F] bg-[#D99B3F]/10' : 'text-[#1B7A6E] bg-[#1B7A6E]/10'
+                          }`}>
                           {alarm.severity || alarm.subtype}
                         </span>
                       </div>
@@ -715,7 +713,6 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );
@@ -741,6 +738,7 @@ export default function DevicesPage({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [firmwareFilter, setFirmwareFilter] = useState('All Firmware');
+  const [isDbDrawerOpen, setIsDbDrawerOpen] = useState(false);
 
   // Bulk Selection
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
@@ -805,6 +803,18 @@ export default function DevicesPage({
     setSelectedDeviceIds(next);
   };
 
+  // --- FULL PAGE DATABASE EXPLORER ---
+  if (isDbDrawerOpen) {
+    return (
+      <DeviceDatabaseTables
+        devices={devices}
+        selectedDeviceId={selectedDeviceId || devices[0]?.id}
+        onSelectDevice={(id) => setSelectedDeviceId(id)}
+        onClose={() => setIsDbDrawerOpen(false)}
+      />
+    );
+  }
+
   // --- RENDER LIST VIEW ---
   if (!selectedDeviceId) {
     return (
@@ -817,8 +827,17 @@ export default function DevicesPage({
               <h1 className="text-lg font-bold uppercase tracking-tight">Device Fleet</h1>
               <p className="text-[11px] text-light-text-secondary dark:text-[#9A9A9A]">Manage and monitor active devices.</p>
             </div>
-            <div className="text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest bg-gray-100 dark:bg-[#1a1a1a] px-2.5 py-1 rounded-sm border border-gray-200 dark:border-[#333]">
-              Total: {devices.length} Devices
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsDbDrawerOpen(true)}
+                className="flex items-center gap-1.5 text-[10px] font-bold text-[#1B7A6E] uppercase tracking-widest bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 px-2.5 py-1 rounded-sm border border-[#1B7A6E]/30 transition-colors"
+                title="Open Database Tables side drawer"
+              >
+                <Database size={12} /> DB Tables
+              </button>
+              <div className="text-[10px] font-bold text-light-text-secondary dark:text-[#9A9A9A] uppercase tracking-widest bg-gray-100 dark:bg-[#1a1a1a] px-2.5 py-1 rounded-sm border border-gray-200 dark:border-[#333]">
+                Total: {devices.length} Devices
+              </div>
             </div>
           </div>
 
@@ -992,11 +1011,7 @@ export default function DevicesPage({
           )}
         </div>
 
-        {/* Database Status Panel */}
-        <div className="flex-none px-4 md:px-6 pb-4">
-          <DbStatusPanel />
-        </div>
-
+        {/* Bulk Action Toolbar */}
         <AnimatePresence>
           {selectedDeviceIds.size > 0 && (
             <motion.div
@@ -1078,6 +1093,13 @@ export default function DevicesPage({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsDbDrawerOpen(true)}
+              className="px-3 py-1 bg-[#181818] hover:bg-[#252525] border border-[#1B7A6E]/40 text-[#1B7A6E] rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer flex items-center gap-1.5"
+              title="Open Database Tables side drawer"
+            >
+              <Database size={12} /> DB Tables
+            </button>
             {onViewTelemetry && (
               <button
                 onClick={() => onViewTelemetry(device.id)}

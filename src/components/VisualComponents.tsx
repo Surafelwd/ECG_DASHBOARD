@@ -160,3 +160,5 @@ export function AIHealthTrends() {
     </div>
   );
 }
+
+export { default as DeviceDatabaseTables } from './DeviceDatabaseTables';

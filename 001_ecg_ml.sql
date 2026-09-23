@@ -54,3 +54,12 @@ CREATE TABLE IF NOT EXISTS ecg_ml.analysis_results (
   requires_review boolean NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 6. Motion Results Table (for every 10-second upload)
+CREATE TABLE IF NOT EXISTS ecg_ml.motion_results (
+  id serial PRIMARY KEY,
+  device_id text NOT NULL,
+  upload_id text NOT NULL,
+  motion_result jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

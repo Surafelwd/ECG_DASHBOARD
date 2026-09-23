@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, doublePrecision, boolean, jsonb, uuid, bigint, integer } from "drizzle-orm/pg-core";
+import { pgTable, pgSchema, serial, text, timestamp, doublePrecision, boolean, jsonb, uuid, bigint, integer } from "drizzle-orm/pg-core";
 
 export const devices = pgTable("devices", {
   id: text("id").primaryKey(),
@@ -61,4 +61,14 @@ export const network_location = pgTable("network_location", {
   tac: integer("tac"),          // Tracking Area Code   (LTE equivalent of LAC)
   cell_id: bigint("cell_id", { mode: "number" }), // Serving Cell ID
   recorded_at: timestamp("recorded_at").defaultNow().notNull(),
+});
+
+export const ecgMl = pgSchema("ecg_ml");
+
+export const motion_results = ecgMl.table("motion_results", {
+  id: serial("id").primaryKey(),
+  device_id: text("device_id").references(() => devices.id).notNull(),
+  upload_id: text("upload_id").notNull(),
+  motion_result: jsonb("motion_result").notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
 });
