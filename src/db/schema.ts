@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, doublePrecision, boolean, jsonb, uuid, bigint } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, doublePrecision, boolean, jsonb, uuid, bigint, integer } from "drizzle-orm/pg-core";
 
 export const devices = pgTable("devices", {
   id: text("id").primaryKey(),
@@ -47,4 +47,18 @@ export const events = pgTable("events", {
   status: text("status"),
   payload: jsonb("payload"),
   created_at: timestamp("created_at").defaultNow()
+});
+
+// Stores LTE cell location metadata sent via X-Network-* HTTP headers during ingest.
+// MCC/MNC identify the carrier. TAC (Tracking Area Code) is the LTE equivalent of 2G/3G LAC.
+// Cell ID uniquely identifies the serving base station within the network.
+export const network_location = pgTable("network_location", {
+  id: serial("id").primaryKey(),
+  device_id: text("device_id").references(() => devices.id).notNull(),
+  session_id: uuid("session_id").notNull(),
+  mcc: integer("mcc"),          // Mobile Country Code  (e.g. 636 for Ethiopia)
+  mnc: integer("mnc"),          // Mobile Network Code  (e.g. 01 for Ethio Telecom)
+  tac: integer("tac"),          // Tracking Area Code   (LTE equivalent of LAC)
+  cell_id: bigint("cell_id", { mode: "number" }), // Serving Cell ID
+  recorded_at: timestamp("recorded_at").defaultNow().notNull(),
 });

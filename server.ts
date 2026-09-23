@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/db/index.js';
-import { devices, readings, events, telemetry_sessions } from './src/db/schema.js';
+import { devices, readings, events, telemetry_sessions, network_location } from './src/db/schema.js';
 import { eq, or, and, desc, sql, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import 'dotenv/config';
@@ -166,6 +166,20 @@ async function startServer() {
         }
       }
 
+      // Optional X-Network-* headers — LTE serving cell metadata from AT+CPSI?
+      // None of these being present does NOT block ingest; all are nullable.
+      const parseNetworkHeader = (key: string): number | undefined => {
+        const raw = req.headers[key];
+        if (!raw) return undefined;
+        const val = parseInt(Array.isArray(raw) ? raw[0] : (raw as string), 10);
+        return isNaN(val) ? undefined : val;
+      };
+      const netMcc    = parseNetworkHeader('x-network-mcc');
+      const netMnc    = parseNetworkHeader('x-network-mnc');
+      const netTac    = parseNetworkHeader('x-network-tac');
+      const netCellId = parseNetworkHeader('x-network-cellid');
+      const hasNetworkInfo = netMcc !== undefined || netMnc !== undefined || netTac !== undefined || netCellId !== undefined;
+
       await db.insert(telemetry_sessions).values({
         id: sessionId,
         device_id: device.id,
@@ -193,6 +207,20 @@ async function startServer() {
 
       await db.insert(readings).values(rowsToInsert);
       recentPayloadDigests.set(payloadDigest, Date.now());
+
+      // Store LTE cell location if any X-Network-* headers were present
+      // This is fire-and-forget; a failure here does NOT affect the ingest response.
+      if (hasNetworkInfo) {
+        db.insert(network_location).values({
+          device_id: device.id,
+          session_id: sessionId,
+          mcc: netMcc ?? null,
+          mnc: netMnc ?? null,
+          tac: netTac ?? null,
+          cell_id: netCellId ?? null,
+          recorded_at: new Date(),
+        }).catch(err => console.error('[network_location] Insert failed (non-fatal):', err));
+      }
 
       const deviceUpdate: any = {
         last_sync: new Date(),
