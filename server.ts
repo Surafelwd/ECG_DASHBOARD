@@ -81,6 +81,133 @@ async function startServer() {
     console.warn('[Neon DB] Could not auto-verify ecg_ml tables:', err.message);
   });
 
+  // Asynchronously forward to ECG ML Service with automatic retry on 503 / 502 / 504 / network errors
+  // Retries with exponential backoff and never discards the original board upload
+  async function forwardUploadToMlServiceWithRetry(payload: {
+    upload_id: string;
+    device_id: string;
+    received_at: string;
+    csv_text: string;
+  }, maxRetries = 5) {
+    if (!ML_SERVICE_URL || !ML_SERVICE_API_KEY) {
+      console.log('[ML Service Forward] ML_SERVICE_URL or ML_SERVICE_API_KEY not configured, skipping forward.');
+      return;
+    }
+
+    const delays = [2000, 4000, 8000, 16000, 30000];
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[ML Service Forward] Upload ${payload.upload_id} for device ${payload.device_id} (Attempt ${attempt}/${maxRetries})...`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
+        const mlRes = await fetch(`${ML_SERVICE_URL}/v1/ecg/uploads`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        // Retry on 503 (Service Unavailable / cold start), 502, 504, or 429
+        if (mlRes.status === 503 || mlRes.status === 502 || mlRes.status === 504 || mlRes.status === 429) {
+          const errText = await mlRes.text().catch(() => '');
+          console.warn(`[ML Service Forward] Attempt ${attempt} returned HTTP ${mlRes.status} (${errText}). Retrying...`);
+          if (attempt < maxRetries) {
+            const delay = delays[attempt - 1] || 30000;
+            await new Promise(res => setTimeout(res, delay));
+            continue;
+          } else {
+            console.error(`[ML Service Forward] Upload ${payload.upload_id} exceeded max retries (${maxRetries}) on HTTP ${mlRes.status}. Original board upload is safely preserved in DB.`);
+            return;
+          }
+        }
+
+        if (!mlRes.ok) {
+          const errText = await mlRes.text().catch(() => '');
+          console.warn(`[ML Service Forward] Attempt ${attempt} returned client error HTTP ${mlRes.status}: ${errText}. Will not retry.`);
+          return;
+        }
+
+        console.log(`[ML Service Forward] Accepted upload ${payload.upload_id} for device ${payload.device_id}`);
+        const mlData: any = await mlRes.json().catch(() => null);
+        if (!mlData) return;
+
+        // 1. Store motion_result from every upload (10-second upload)
+        if (mlData.motion_result) {
+          try {
+            await db.execute(sql`
+              INSERT INTO ecg_ml.motion_results (device_id, upload_id, motion_result, created_at)
+              VALUES (${payload.device_id}, ${payload.upload_id}, ${JSON.stringify(mlData.motion_result)}::jsonb, now())
+            `);
+            console.log(`[ML Service] Stored motion_result for device ${payload.device_id}, upload ${payload.upload_id}`);
+          } catch (motionErr: any) {
+            console.warn('[ML Service] Failed to store motion_result:', motionErr.message);
+          }
+        }
+
+        // 2. Store analysis_result whenever three contiguous 10-second uploads produce the 30-second ECG classification
+        if (mlData.analysis_result) {
+          try {
+            const ar = mlData.analysis_result;
+            const jobId = ar.job_id || mlData.job_id || crypto.randomUUID();
+            const schemaVersion = Number(ar.schema_version) || 1;
+            const modelVersion = Number(ar.model_version) || 5;
+            const modelSha = ar.model_sha256 || 'models/ecg_v5_development_xz.joblib';
+            const devOnly = ar.development_only ?? true;
+            const startMs = Number(ar.input_start_ms) || 0;
+            const endMs = Number(ar.input_end_ms) || 30000;
+            const label = ar.label || 'normal';
+            const quality = ar.quality || 'usable';
+            const confidence = Number(ar.confidence) || 0.95;
+            const requiresReview = ar.requires_review ?? false;
+
+            // Ensure an analysis_jobs entry exists
+            await db.execute(sql`
+              INSERT INTO ecg_ml.analysis_jobs (
+                job_id, device_id, first_upload_id, second_upload_id, third_upload_id, model_sha256, status
+              ) VALUES (
+                ${jobId}::uuid, ${payload.device_id}, ${payload.upload_id}, ${payload.upload_id}, ${payload.upload_id}, ${modelSha}, 'completed'
+              ) ON CONFLICT (job_id) DO NOTHING
+            `).catch(() => null);
+
+            await db.execute(sql`
+              INSERT INTO ecg_ml.analysis_results (
+                job_id, schema_version, model_version, model_sha256, development_only,
+                device_id, input_start_ms, input_end_ms, label, quality, confidence, requires_review, created_at
+              ) VALUES (
+                ${jobId}::uuid, ${schemaVersion}, ${modelVersion}, ${modelSha}, ${devOnly},
+                ${payload.device_id}, ${startMs}, ${endMs}, ${label}, ${quality}, ${confidence}, ${requiresReview}, now()
+              ) ON CONFLICT (job_id) DO UPDATE SET
+                label = EXCLUDED.label,
+                confidence = EXCLUDED.confidence,
+                quality = EXCLUDED.quality,
+                requires_review = EXCLUDED.requires_review
+            `);
+            console.log(`[ML Service] Stored 30s analysis_result for device ${payload.device_id}, label: ${label}`);
+          } catch (analysisErr: any) {
+            console.warn('[ML Service] Failed to store analysis_result:', analysisErr.message);
+          }
+        }
+
+        return;
+      } catch (err: any) {
+        console.warn(`[ML Service Forward] Network failure on attempt ${attempt}:`, err.message);
+        if (attempt < maxRetries) {
+          const delay = delays[attempt - 1] || 30000;
+          await new Promise(res => setTimeout(res, delay));
+        } else {
+          console.error(`[ML Service Forward] Upload ${payload.upload_id} network failure after max retries. Original board upload is safely preserved in DB.`);
+        }
+      }
+    }
+  }
+
   // Ingest API
   app.post('/api/ingest', async (req, res) => {
     try {
@@ -217,17 +344,6 @@ async function startServer() {
       const startUptime = readingsArray[0].uptime || 0;
       const endUptime = readingsArray[readingsArray.length - 1].uptime || 0;
 
-      // Optional X-Battery-Millivolts header (2500 - 5000 mV)
-      // Note per spec: Battery percentage should NOT be inferred from this voltage measurement.
-      const batteryHeader = req.headers['x-battery-millivolts'];
-      let batteryMillivolts: number | undefined;
-      if (batteryHeader) {
-        const rawMv = parseInt(Array.isArray(batteryHeader) ? batteryHeader[0] : (batteryHeader as string), 10);
-        if (!isNaN(rawMv) && rawMv >= 2500 && rawMv <= 5000) {
-          batteryMillivolts = rawMv;
-        }
-      }
-
       // Optional X-Network-* headers — LTE serving cell metadata from AT+CPSI?
       // None of these being present does NOT block ingest; all are nullable.
       const parseNetworkHeader = (key: string): number | undefined => {
@@ -252,7 +368,6 @@ async function startServer() {
         device_uptime_start_ms: startUptime,
         device_uptime_end_ms: endUptime,
         sample_count: readingsArray.length,
-        battery_voltage_mv: batteryMillivolts || null,
       });
 
       const rowsToInsert = readingsArray.map((r: any) => ({
@@ -288,10 +403,6 @@ async function startServer() {
         last_sync: new Date(),
         connectivity_status: 'online',
       };
-      if (batteryMillivolts !== undefined) {
-        deviceUpdate.battery_level = batteryMillivolts;
-        deviceUpdate.last_battery_voltage_mv = batteryMillivolts;
-      }
 
       await db.update(devices)
         .set(deviceUpdate)
@@ -322,93 +433,16 @@ async function startServer() {
         });
       }
 
-      // Asynchronously forward to ECG ML Service if configured (ECG_ML_SERVICE_INTEGRATION)
-      // Do not make the board wait for ML inference
-      if (ML_SERVICE_URL && ML_SERVICE_API_KEY && typeof req.body === 'string') {
-        const mlPayload = {
+      // Asynchronously forward to ECG ML Service with 503 retry and backoff
+      // The original board upload is stored safely and returned HTTP 200 without waiting
+      if (typeof req.body === 'string') {
+        forwardUploadToMlServiceWithRetry({
           upload_id: sessionId,
           device_id: device.id,
           received_at: new Date().toISOString(),
           csv_text: req.body,
-        };
-        fetch(`${ML_SERVICE_URL}/v1/ecg/uploads`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(mlPayload),
-        }).then(async (mlRes) => {
-          if (!mlRes.ok) {
-            const errText = await mlRes.text().catch(() => '');
-            console.warn(`[ML Service Forward] Received HTTP ${mlRes.status}:`, errText);
-            return;
-          }
-
-          console.log(`[ML Service Forward] Accepted upload ${sessionId} for ${device.id}`);
-
-          // Parse JSON response from ML Service
-          const mlData: any = await mlRes.json().catch(() => null);
-          if (!mlData) return;
-
-          // 1. Store motion_result (for every 10-second upload)
-          if (mlData.motion_result) {
-            try {
-              await db.execute(sql`
-                INSERT INTO ecg_ml.motion_results (device_id, upload_id, motion_result, created_at)
-                VALUES (${device.id}, ${sessionId}, ${JSON.stringify(mlData.motion_result)}::jsonb, now())
-              `);
-              console.log(`[ML Service] Stored motion_result for device ${device.id}, upload ${sessionId}`);
-            } catch (motionErr: any) {
-              console.warn('[ML Service] Failed to store motion_result:', motionErr.message);
-            }
-          }
-
-          // 2. Store analysis_result (after every third contiguous upload)
-          if (mlData.analysis_result) {
-            try {
-              const ar = mlData.analysis_result;
-              const jobId = ar.job_id || mlData.job_id || crypto.randomUUID();
-              const schemaVersion = Number(ar.schema_version) || 1;
-              const modelVersion = Number(ar.model_version) || 5;
-              const modelSha = ar.model_sha256 || 'models/ecg_v5_development_xz.joblib';
-              const devOnly = ar.development_only ?? true;
-              const startMs = Number(ar.input_start_ms) || 0;
-              const endMs = Number(ar.input_end_ms) || 30000;
-              const label = ar.label || 'normal';
-              const quality = ar.quality || 'usable';
-              const confidence = Number(ar.confidence) || 0.95;
-              const requiresReview = ar.requires_review ?? false;
-
-              // Ensure an analysis_jobs entry exists if needed
-              await db.execute(sql`
-                INSERT INTO ecg_ml.analysis_jobs (
-                  job_id, device_id, first_upload_id, second_upload_id, third_upload_id, model_sha256, status
-                ) VALUES (
-                  ${jobId}::uuid, ${device.id}, ${sessionId}, ${sessionId}, ${sessionId}, ${modelSha}, 'completed'
-                ) ON CONFLICT (job_id) DO NOTHING
-              `).catch(() => null);
-
-              await db.execute(sql`
-                INSERT INTO ecg_ml.analysis_results (
-                  job_id, schema_version, model_version, model_sha256, development_only,
-                  device_id, input_start_ms, input_end_ms, label, quality, confidence, requires_review, created_at
-                ) VALUES (
-                  ${jobId}::uuid, ${schemaVersion}, ${modelVersion}, ${modelSha}, ${devOnly},
-                  ${device.id}, ${startMs}, ${endMs}, ${label}, ${quality}, ${confidence}, ${requiresReview}, now()
-                ) ON CONFLICT (job_id) DO UPDATE SET
-                  label = EXCLUDED.label,
-                  confidence = EXCLUDED.confidence,
-                  quality = EXCLUDED.quality,
-                  requires_review = EXCLUDED.requires_review
-              `);
-              console.log(`[ML Service] Stored 30s analysis_result for device ${device.id}, label: ${label}`);
-            } catch (analysisErr: any) {
-              console.warn('[ML Service] Failed to store analysis_result:', analysisErr.message);
-            }
-          }
-        }).catch((err) => {
-          console.warn('[ML Service Forward] Network failure:', err.message);
+        }).catch(err => {
+          console.error('[ML Service Forward] Unexpected error in async forward:', err);
         });
       }
 
@@ -473,7 +507,6 @@ async function startServer() {
           serialNumber: d.serial_number || d.id,
           ownerName: d.owner_name || '',
           connectivityStatus: status,
-          batteryLevel: d.battery_level ?? 100,
           signalStrength: status === 'Online' ? 3 : 0,
           firmwareVersion: 'v1.0.0',
           firmwareUpdateAvailable: false,
@@ -512,7 +545,6 @@ async function startServer() {
         serialNumber: d.serial_number || d.id,
         ownerName: d.owner_name || '',
         connectivityStatus: status,
-        batteryLevel: d.battery_level ?? 100,
         signalStrength: status === 'Online' ? 3 : 0,
         firmwareVersion: 'v1.0.0',
         firmwareUpdateAvailable: false,
@@ -1174,6 +1206,64 @@ async function startServer() {
       return res.status(404).json({ error: 'Job not found' });
     } catch (err: any) {
       console.error('Error fetching ML job:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/ml/motion/:deviceId/latest', async (req, res) => {
+    const { deviceId } = req.params;
+    try {
+      if (ML_SERVICE_URL && ML_SERVICE_API_KEY) {
+        try {
+          const mlRes = await fetch(`${ML_SERVICE_URL}/v1/ecg/motion/${encodeURIComponent(deviceId)}/latest`, {
+            headers: {
+              'Authorization': `Bearer ${ML_SERVICE_API_KEY}`,
+              'Accept': 'application/json',
+            },
+          });
+          if (mlRes.ok) {
+            const data = await mlRes.json();
+            return res.json(data);
+          }
+        } catch (fetchErr: any) {
+          // Fall back to database query
+        }
+      }
+
+      const directResult: any = await db.execute(sql`
+        SELECT id, device_id, upload_id, motion_result, created_at
+        FROM ecg_ml.motion_results
+        WHERE device_id = ${deviceId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).catch(() => null);
+
+      if (directResult && directResult.rows && directResult.rows.length > 0) {
+        return res.json(directResult.rows[0]);
+      }
+
+      return res.status(404).json({ error: 'No motion result available yet for this device' });
+    } catch (err: any) {
+      console.error('Error fetching latest motion result:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/ml/motion/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    try {
+      const directResult: any = await db.execute(sql`
+        SELECT id, device_id, upload_id, motion_result, created_at
+        FROM ecg_ml.motion_results
+        WHERE device_id = ${deviceId}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `).catch(() => null);
+
+      return res.json(directResult?.rows || []);
+    } catch (err: any) {
+      console.error('Error fetching motion results:', err);
       return res.status(500).json({ error: 'Internal Server Error' });
     }
   });

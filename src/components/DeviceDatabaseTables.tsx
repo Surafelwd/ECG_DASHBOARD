@@ -572,7 +572,7 @@ function SessionsTable({ rows, formatTimestamp, onCopy, copiedText }: any) {
           <th className="py-2.5 px-4">Received At</th>
           <th className="py-2.5 px-4">Window (Start → End)</th>
           <th className="py-2.5 px-4">Sample Count</th>
-          <th className="py-2.5 px-4">Battery</th>
+          <th className="py-2.5 px-4">Uptime (ms)</th>
           <th className="py-2.5 px-4">Payload SHA256</th>
         </tr>
       </thead>
@@ -594,8 +594,8 @@ function SessionsTable({ rows, formatTimestamp, onCopy, copiedText }: any) {
               <span className="text-white">{formatTimestamp(row.estimated_end_time).split(' ')[1]}</span>
             </td>
             <td className="py-2 px-4 font-bold text-white">{Number(row.sample_count).toLocaleString()}</td>
-            <td className="py-2 px-4">
-              {row.battery_voltage_mv ? `${(row.battery_voltage_mv / 1000).toFixed(2)} V` : '—'}
+            <td className="py-2 px-4 font-mono text-gray-300 text-xs">
+              {row.device_uptime_end_ms ? `${Number(row.device_uptime_end_ms).toLocaleString()} ms` : '—'}
             </td>
             <td className="py-2 px-4 text-gray-400 text-[10px]" title={row.payload_hash}>
               {row.payload_hash?.slice(0, 12)}...

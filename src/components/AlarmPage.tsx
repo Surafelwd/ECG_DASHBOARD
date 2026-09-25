@@ -415,7 +415,7 @@ export default function AlarmPage({
         >
           <option value="All">All Alarm Types</option>
           <option value="Device Disconnected">Device Disconnected</option>
-          <option value="Low Battery">Low Battery</option>
+          <option value="Motion Artifact Spikes">Motion Artifact Spikes</option>
           <option value="Signal Lost">Signal Lost</option>
           <option value="Abnormal Signal Pattern">Abnormal Signal Pattern</option>
           <option value="Missed Transmission">Missed Transmission</option>

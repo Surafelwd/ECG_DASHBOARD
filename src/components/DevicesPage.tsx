@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Search, Filter, X, Signal, SignalZero, SignalLow, SignalMedium, SignalHigh,
-  Battery, AlertTriangle, ArrowLeft, Download, Clock, User, Hash, HardDrive, Wifi, WifiOff, FileText, ChevronLeft, ChevronRight, CheckSquare, Square, Zap, RefreshCw, Smartphone, Activity,
+  AlertTriangle, ArrowLeft, Download, Clock, User, Hash, HardDrive, Wifi, WifiOff, FileText, ChevronLeft, ChevronRight, CheckSquare, Square, Zap, RefreshCw, Smartphone, Activity,
   ZoomIn, ZoomOut, RotateCcw, Database
 } from 'lucide-react';
 import DeviceDatabaseTables from './DeviceDatabaseTables';
@@ -54,22 +54,14 @@ const StatusBadge = ({ isOnline }: { isOnline: boolean }) => (
   </span>
 );
 
-const BatteryIndicator = ({ level, sparkData }: { level: number, sparkData?: number[] }) => {
-  let color = 'text-[#1B7A6E]';
-  let hexColor = '#1B7A6E';
-  if (level <= 20) { color = 'text-[#C4453D]'; hexColor = '#C4453D'; }
-  else if (level <= 50) { color = 'text-[#D99B3F]'; hexColor = '#D99B3F'; }
-
+const MotionQualityIndicator = ({ quality = 'Active', sparkData }: { quality?: string, sparkData?: number[] }) => {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex items-center space-x-1.5 w-14">
-        <div className={`w-6 h-3 border border-current rounded-[2px] p-[1px] relative ${color}`}>
-          <div className="h-full bg-current" style={{ width: `${level}%` }}></div>
-          <div className="absolute -right-[2px] top-1/2 -translate-y-1/2 w-[1px] h-1.5 bg-current rounded-r-sm"></div>
-        </div>
-        <span className={`text-xs font-semibold ${color}`}>{level}%</span>
-      </div>
-      {sparkData && <Sparkline data={sparkData} color={hexColor} />}
+      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30 flex items-center gap-1">
+        <Activity size={10} />
+        {quality}
+      </span>
+      {sparkData && <Sparkline data={sparkData} color="#1B7A6E" />}
     </div>
   );
 };
@@ -149,6 +141,12 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
     created_at?: string;
     model_version?: number;
   } | null>(null);
+  const [motionResult, setMotionResult] = useState<{
+    id?: number;
+    upload_id?: string;
+    motion_result?: any;
+    created_at?: string;
+  } | null>(null);
   const [alarms, setAlarms] = useState<any[]>([]);
   const [isLoadingAlarms, setIsLoadingAlarms] = useState(false);
 
@@ -171,6 +169,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
         setIsLoadingQrs(false);
       });
 
+    // 1. Fetch latest 30-second continuous ECG rhythm classification (analysis_result)
     fetch(`/api/ml/analyses/${encodeURIComponent(device.id)}/latest`)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
@@ -182,6 +181,20 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
       })
       .catch(() => {
         setMlResult(null);
+      });
+
+    // 2. Fetch latest 10-second upload motion analysis (motion_result)
+    fetch(`/api/ml/motion/${encodeURIComponent(device.id)}/latest`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && (data.motion_result || data.activity_level !== undefined || data.avg_motion_mg !== undefined)) {
+          setMotionResult(data);
+        } else {
+          setMotionResult(null);
+        }
+      })
+      .catch(() => {
+        setMotionResult(null);
       });
 
     setIsLoadingAlarms(true);
@@ -499,32 +512,37 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
 
             <div className="flex flex-col">
               <div className="flex justify-between items-end mb-1">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Battery Level</span>
-                <span className="text-xs font-bold text-[#D99B3F]">-15% / day</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">ML Motion Acceleration</span>
+                <span className="text-xs font-bold text-[#1B7A6E]">
+                  {qrsData?.stats.avgMotionMg ? `${qrsData.stats.avgMotionMg} mg` : '1000 mg'}
+                </span>
               </div>
               <div className="h-36 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={[
-                    { time: 'Day 1', val: 100 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 70 },
-                    { time: 'Day 4', val: 55 }, { time: 'Day 5', val: 100 }, { time: 'Day 6', val: 80 },
-                    { time: 'Day 7', val: 65 }
-                  ]} margin={{ top: 6, right: 6, left: -20, bottom: 0 }}>
+                    { time: '10s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 0.97) : 980 },
+                    { time: '20s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 1.02) : 1010 },
+                    { time: '30s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 0.99) : 995 },
+                    { time: '40s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 1.03) : 1030 },
+                    { time: '50s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 0.98) : 985 },
+                    { time: '60s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg) : 1000 },
+                  ]} margin={{ top: 6, right: 6, left: -10, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="colorBatt" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#D99B3F" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#D99B3F" stopOpacity={0} />
+                      <linearGradient id="colorMotion" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#1B7A6E" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
                     <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} />
+                    <YAxis domain={['dataMin - 30', 'dataMax + 30']} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}`} />
                     <RechartsTooltip
                       contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '10px', color: '#F2F2F2', padding: '4px 8px' }}
-                      itemStyle={{ color: '#D99B3F', fontWeight: 'bold' }}
+                      itemStyle={{ color: '#1B7A6E', fontWeight: 'bold' }}
                       labelStyle={{ display: 'none' }}
-                      formatter={(val: number) => [`${val}%`, 'Battery']}
+                      formatter={(val: number) => [`${val} mg`, 'Motion Accel']}
                     />
-                    <Area type="stepAfter" dataKey="val" stroke="#D99B3F" strokeWidth={2} fillOpacity={1} fill="url(#colorBatt)" />
+                    <Area type="monotone" dataKey="val" stroke="#1B7A6E" strokeWidth={2} fillOpacity={1} fill="url(#colorMotion)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -538,27 +556,37 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
             <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] flex items-center">
               <Zap size={13} className="mr-1.5 text-[#D99B3F]" /> ECG Machine Learning & Clinical Insights
             </h3>
-            {mlResult && (
-              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${mlResult.label === 'normal'
-                  ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
-                  : mlResult.label === 'af_suspected'
-                    ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
-                    : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
-                }`}>
-                {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'AF Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm' : 'Review Needed'}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5">
+              {/* 10s Motion Badge */}
+              {motionResult && (
+                <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30 flex items-center gap-1">
+                  <Activity size={10} />
+                  10s Motion: {motionResult.motion_result?.activity_level || motionResult.motion_result?.motion_level || 'Active'}
+                </span>
+              )}
+              {/* 30s Rhythm Badge */}
+              {mlResult && (
+                <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${mlResult.label === 'normal'
+                    ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
+                    : mlResult.label === 'af_suspected'
+                      ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
+                      : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
+                  }`}>
+                  {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'AF Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm' : 'Review Needed'} (30s)
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col md:flex-row gap-4 items-center">
             {/* Graphical Radar Chart based on actual metrics */}
-            <div className="w-full md:w-1/2 h-36">
+            <div className="w-full md:w-5/12 h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart outerRadius="70%" data={[
                   { subject: 'Signal Stability', A: qrsData?.stats.signalStability ?? 94, fullMark: 100 },
                   { subject: 'Data Usability', A: mlResult?.quality === 'usable' ? 98 : (qrsData?.stats.signalStability ?? 90), fullMark: 100 },
                   { subject: 'Model Confidence', A: mlResult ? Math.round(mlResult.confidence * 100) : (qrsData?.stats.estimatedBpm ? 92 : 80), fullMark: 100 },
-                  { subject: 'Battery Health', A: Math.min(100, Math.round((device.batteryLevel ?? 100) > 3000 ? ((device.batteryLevel - 3000) / 1200) * 100 : (device.batteryLevel ?? 100))), fullMark: 100 },
+                  { subject: 'Motion Quality', A: qrsData?.stats.signalStability ?? 95, fullMark: 100 },
                   { subject: 'Sync Reliability', A: device.connectivityStatus === 'Online' ? 99 : 85, fullMark: 100 },
                 ]}>
                   <PolarGrid stroke="#333" />
@@ -573,19 +601,77 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               </ResponsiveContainer>
             </div>
 
-            {/* Real ML Results / Insights */}
-            <div className="w-full md:w-1/2 space-y-2">
-              {mlResult ? (
-                <>
-                  <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1">
+            {/* Real ML Results / Insights (Both 10s Motion & 30s Rhythm) */}
+            <div className="w-full md:w-7/12 space-y-2.5">
+              {/* Card 1: 10-Second Upload Packet Motion Result (Every upload) */}
+              <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1.5">
+                    <Activity size={12} className="text-[#1B7A6E]" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-light-text dark:text-[#F2F2F2]">
+                      10s Upload Motion Result
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-mono text-light-text-secondary dark:text-[#9A9A9A]">
+                    Every 10s packet
+                  </span>
+                </div>
+
+                {motionResult ? (
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-100 dark:border-[#1a1a1a] text-xs">
+                    <div>
+                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Activity Level</span>
+                      <span className="font-bold text-[#1B7A6E] capitalize text-xs">
+                        {motionResult.motion_result?.activity_level || motionResult.motion_result?.motion_level || 'Normal'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Avg Motion</span>
+                      <span className="font-bold text-light-text dark:text-[#F2F2F2] text-xs">
+                        {motionResult.motion_result?.avg_motion_mg ?? motionResult.motion_result?.avg_mg ?? (qrsData?.stats.avgMotionMg ? `${qrsData.stats.avgMotionMg}` : '—')} mg
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Artifacts</span>
+                      <span className="font-bold text-light-text dark:text-[#F2F2F2] text-xs">
+                        {motionResult.motion_result?.motion_artifacts ?? motionResult.motion_result?.artifact_count ?? 0}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-light-text-secondary dark:text-[#9A9A9A] flex items-center justify-between pt-1 border-t border-gray-100 dark:border-[#1a1a1a]">
+                    <span>Awaiting initial 10s packet motion analysis...</span>
+                    {qrsData?.stats && (
+                      <span className="font-mono text-[9px]">Local Accel: <b>{qrsData.stats.avgMotionMg} mg</b></span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Card 2: 30-Second Continuous Rhythm Classification (Every 3 contiguous uploads) */}
+              <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1.5">
+                    <Zap size={12} className="text-[#D99B3F]" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-light-text dark:text-[#F2F2F2]">
+                      30s Continuous Rhythm Classification
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-mono text-light-text-secondary dark:text-[#9A9A9A]">
+                    3 contiguous uploads
+                  </span>
+                </div>
+
+                {mlResult ? (
+                  <div className="space-y-1 pt-1 border-t border-gray-100 dark:border-[#1a1a1a]">
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Classification:</span>
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Diagnosis:</span>
                       <span className="font-bold text-light-text dark:text-[#F2F2F2]">
                         {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'Atrial Fibrillation Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm Abnormality' : 'Uncertain (Clinical Review)'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Confidence:</span>
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Model Confidence:</span>
                       <span className="font-mono font-bold text-[#1B7A6E]">{(mlResult.confidence * 100).toFixed(1)}%</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
@@ -599,36 +685,22 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                       </span>
                     </div>
                   </div>
-                  <div className="p-2 bg-[#D99B3F]/10 border border-[#D99B3F]/20 rounded-sm">
-                    <p className="text-[10px] text-[#D99B3F] font-mono leading-relaxed">
-                      ⚠ Revision 5 model output for research and development — requires clinical review.
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#1B7A6E] animate-pulse" />
-                      <span className="text-xs font-bold text-light-text dark:text-[#F2F2F2]">Automated Telemetry Pipeline Active</span>
+                ) : (
+                  <div className="pt-1 border-t border-gray-100 dark:border-[#1a1a1a] space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs text-light-text-secondary dark:text-[#9A9A9A]">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#D99B3F] animate-pulse" />
+                      <span>Awaiting 3 contiguous 10-second uploads to complete 30-second rhythm window.</span>
                     </div>
-                    <p className="text-[11px] text-light-text-secondary dark:text-[#9A9A9A] leading-relaxed">
-                      ML service analyzes three consecutive 10-second ECG uploads (30-second window). Awaiting timestamp-contiguous uploads to complete window.
-                    </p>
-                    {qrsData?.stats && (
-                      <div className="pt-1.5 border-t border-gray-100 dark:border-[#1a1a1a] flex justify-between text-[9px] font-mono">
-                        <span>Lead II Stability: <b>{qrsData.stats.signalStability}%</b></span>
-                        <span>Avg Accel: <b>{qrsData.stats.avgMotionMg} mg</b></span>
-                      </div>
-                    )}
                   </div>
-                  <div className="p-2 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm">
-                    <p className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] font-mono">
-                      ℹ Revision 5 model output for research and development — requires clinical review.
-                    </p>
-                  </div>
-                </>
-              )}
+                )}
+              </div>
+
+              {/* Research and Development Advisory */}
+              <div className="px-2 py-1 bg-[#D99B3F]/10 border border-[#D99B3F]/20 rounded-sm">
+                <p className="text-[9px] text-[#D99B3F] font-mono leading-relaxed">
+                  ⚠ Revision 5 model output for research and development — requires clinical review.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -770,7 +842,6 @@ export default function DevicesPage({
     if (statusFilter !== 'All') {
       if (statusFilter === 'Online' && d.connectivityStatus !== 'Online') return false;
       if (statusFilter === 'Offline' && d.connectivityStatus !== 'Offline') return false;
-      if (statusFilter === 'Low Battery' && d.batteryLevel > 20) return false;
       if (statusFilter === 'Needs Update' && !d.firmwareUpdateAvailable) return false;
     }
     if (firmwareFilter !== 'All Firmware') {
@@ -862,7 +933,6 @@ export default function DevicesPage({
                 <option value="All">All Status</option>
                 <option value="Online">Online</option>
                 <option value="Offline">Offline</option>
-                <option value="Low Battery">Low Battery</option>
                 <option value="Needs Update">Needs Update</option>
               </select>
 
@@ -936,7 +1006,7 @@ export default function DevicesPage({
                       </th>
                       <th className="px-4 py-2.5">Device ID</th>
                       <th className="px-4 py-2.5">Status</th>
-                      <th className="px-4 py-2.5">Battery (7d)</th>
+                      <th className="px-4 py-2.5">Motion / Quality (ML)</th>
                       <th className="px-4 py-2.5 hidden md:table-cell">Signal (7d)</th>
                       <th className="px-4 py-2.5 hidden lg:table-cell">Firmware</th>
                       <th className="px-4 py-2.5">Last Sync</th>
@@ -946,15 +1016,13 @@ export default function DevicesPage({
                     {filteredDevices.map(device => {
                       const isSelected = selectedDeviceIds.has(device.id);
                       const isOffline = device.connectivityStatus === 'Offline';
-                      const isLowBatt = device.batteryLevel <= 20;
 
                       let rowBg = 'hover:bg-gray-50 dark:hover:bg-[#1a1a1a]';
                       if (isSelected) rowBg = 'bg-[#1B7A6E]/5 hover:bg-[#1B7A6E]/10';
                       else if (isOffline) rowBg = 'bg-[#C4453D]/5 hover:bg-[#C4453D]/10';
-                      else if (isLowBatt) rowBg = 'bg-[#D99B3F]/5 hover:bg-[#D99B3F]/10';
 
-                      // Mock sparkline data based on battery/signal
-                      const battSpark = Array.from({ length: 10 }, (_, i) => device.batteryLevel + Math.sin(i) * 5 + (i * 2));
+                      // Mock sparkline data based on motion / signal
+                      const motionSpark = Array.from({ length: 10 }, (_, i) => 980 + Math.sin(i) * 20);
                       const sigSpark = Array.from({ length: 10 }, (_, i) => (device.signalStrength * 25) + (Math.random() * 20 - 10));
 
                       return (
@@ -962,7 +1030,7 @@ export default function DevicesPage({
                           key={device.id}
                           onClick={() => setSelectedDeviceId(device.id)}
                           tabIndex={0}
-                          className={`transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B7A6E] ${rowBg} ${isOffline ? 'border-l-4 border-l-[#C4453D]' : isLowBatt ? 'border-l-4 border-l-[#D99B3F]' : 'border-l-4 border-l-transparent'}`}
+                          className={`transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B7A6E] ${rowBg} ${isOffline ? 'border-l-4 border-l-[#C4453D]' : 'border-l-4 border-l-transparent'}`}
                         >
                           <td className="px-3 py-2.5 text-center">
                             <button
@@ -985,7 +1053,7 @@ export default function DevicesPage({
                             <StatusBadge isOnline={!isOffline} />
                           </td>
                           <td className="px-4 py-2.5">
-                            <BatteryIndicator level={device.batteryLevel} sparkData={battSpark} />
+                            <MotionQualityIndicator quality="Active" sparkData={motionSpark} />
                           </td>
                           <td className="px-4 py-2.5 hidden md:table-cell">
                             <SignalIndicator strength={device.signalStrength} sparkData={sigSpark} />

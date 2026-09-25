@@ -68,22 +68,6 @@ const StatusBadge = ({ isOnline }: { isOnline: boolean }) => (
   </span>
 );
 
-const BatteryIndicator = ({ level }: { level: number }) => {
-  let color = 'text-[#1B7A6E]';
-  if (level <= 20) color = 'text-[#C4453D]';
-  else if (level <= 50) color = 'text-[#D99B3F]';
-
-  return (
-    <div className="flex items-center space-x-1.5">
-      <div className={`w-6 h-3 border border-current rounded-[2px] p-[1px] relative ${color}`}>
-        <div className="h-full bg-current" style={{ width: `${level}%` }}></div>
-        <div className="absolute -right-[2px] top-1/2 -translate-y-1/2 w-[1px] h-1.5 bg-current rounded-r-sm"></div>
-      </div>
-      <span className="text-xs font-semibold text-light-text dark:text-dark-text">{level}%</span>
-    </div>
-  );
-};
-
 // --- MAIN COMPONENT ---
 export default function CommandCenter({
   userRole = 'Administrator',
@@ -194,7 +178,7 @@ export default function CommandCenter({
     setTimeout(() => {
       setIsDiagnosticRunning(false);
       setDiagnosticResults([
-        { name: 'Battery Health', status: 'pass' },
+        { name: 'Continuous ECG Pipeline', status: 'pass' },
         { name: 'ECG Lead Connectivity Ch1', status: 'pass' },
         { name: 'ECG Lead Connectivity Ch2', status: 'fail' },
         { name: 'Accelerometer Sensor', status: 'pass' },
@@ -314,7 +298,9 @@ export default function CommandCenter({
                 )}
               </div>
               <div className="flex items-center">
-                <BatteryIndicator level={device.batteryLevel} />
+                <span className="text-[10px] font-bold text-[#1B7A6E] bg-[#1B7A6E]/10 px-2 py-0.5 rounded border border-[#1B7A6E]/20 flex items-center gap-1">
+                  <Activity size={10} /> Active Ingest
+                </span>
               </div>
               <div className="flex items-center">
                 <Clock size={12} className="mr-1" />
@@ -382,9 +368,10 @@ export default function CommandCenter({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-gray-200 dark:border-[#262626]">
           <div className="flex gap-8 md:gap-12 flex-wrap">
             <div className="flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2">Battery Health</span>
-              <div className="flex items-center gap-2">
-                <BatteryIndicator level={device.batteryLevel} />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2">ML Telemetry State</span>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1B7A6E]">
+                <Activity size={12} />
+                <span>Continuous 10s Ingest</span>
               </div>
             </div>
             <div className="flex flex-col">
