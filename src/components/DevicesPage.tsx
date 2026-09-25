@@ -561,7 +561,13 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               {motionResult && (
                 <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30 flex items-center gap-1">
                   <Activity size={10} />
-                  10s Motion: {motionResult.motion_result?.activity_level || motionResult.motion_result?.motion_level || 'Active'}
+                  10s Motion: {
+                    (motionResult.motion_result?.verdict === 'supine' ? 'Supine' :
+                     motionResult.motion_result?.verdict === 'upright_stationary' ? 'Upright Stationary' :
+                     motionResult.motion_result?.verdict === 'walking' ? 'Walking' :
+                     motionResult.motion_result?.verdict || motionResult.motion_result?.activity_level || 'Active')
+                  }
+                  {motionResult.motion_result?.confidence !== undefined && ` (${(motionResult.motion_result.confidence * 100).toFixed(0)}%)`}
                 </span>
               )}
               {/* 30s Rhythm Badge */}
@@ -572,7 +578,10 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                       ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
                       : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
                   }`}>
-                  {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'AF Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm' : 'Review Needed'} (30s)
+                  {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' :
+                   mlResult.label === 'af_suspected' ? 'AF Suspected' :
+                   mlResult.label === 'other_rhythm' ? 'Other Rhythm' :
+                   'Uncertain / Review'} (30s)
                 </span>
               )}
             </div>
@@ -584,8 +593,8 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart outerRadius="70%" data={[
                   { subject: 'Signal Stability', A: qrsData?.stats.signalStability ?? 94, fullMark: 100 },
-                  { subject: 'Data Usability', A: mlResult?.quality === 'usable' ? 98 : (qrsData?.stats.signalStability ?? 90), fullMark: 100 },
-                  { subject: 'Model Confidence', A: mlResult ? Math.round(mlResult.confidence * 100) : (qrsData?.stats.estimatedBpm ? 92 : 80), fullMark: 100 },
+                  { subject: 'Data Usability', A: mlResult?.quality === 'usable' ? 98 : mlResult?.quality === 'poor_signal' ? 45 : (qrsData?.stats.signalStability ?? 90), fullMark: 100 },
+                  { subject: 'Model Confidence', A: mlResult?.confidence !== undefined ? Math.round(mlResult.confidence * 100) : (qrsData?.stats.estimatedBpm ? 92 : 80), fullMark: 100 },
                   { subject: 'Motion Quality', A: qrsData?.stats.signalStability ?? 95, fullMark: 100 },
                   { subject: 'Sync Reliability', A: device.connectivityStatus === 'Online' ? 99 : 85, fullMark: 100 },
                 ]}>
@@ -612,29 +621,39 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                       10s Upload Motion Result
                     </span>
                   </div>
-                  <span className="text-[9px] font-mono text-light-text-secondary dark:text-[#9A9A9A]">
-                    Every 10s packet
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {motionResult?.motion_result?.research_only && (
+                      <span className="text-[8px] font-mono px-1 py-0.2 bg-[#D99B3F]/10 text-[#D99B3F] border border-[#D99B3F]/20 rounded">
+                        Research Use Only
+                      </span>
+                    )}
+                    <span className="text-[9px] font-mono text-light-text-secondary dark:text-[#9A9A9A]">
+                      Every 10s packet
+                    </span>
+                  </div>
                 </div>
 
                 {motionResult ? (
                   <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-100 dark:border-[#1a1a1a] text-xs">
                     <div>
-                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Activity Level</span>
+                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Posture / Verdict</span>
                       <span className="font-bold text-[#1B7A6E] capitalize text-xs">
-                        {motionResult.motion_result?.activity_level || motionResult.motion_result?.motion_level || 'Normal'}
+                        {motionResult.motion_result?.verdict === 'supine' ? 'Supine' :
+                         motionResult.motion_result?.verdict === 'upright_stationary' ? 'Upright Stationary' :
+                         motionResult.motion_result?.verdict === 'walking' ? 'Walking' :
+                         motionResult.motion_result?.verdict || motionResult.motion_result?.activity_level || 'Active'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Avg Motion</span>
-                      <span className="font-bold text-light-text dark:text-[#F2F2F2] text-xs">
-                        {motionResult.motion_result?.avg_motion_mg ?? motionResult.motion_result?.avg_mg ?? (qrsData?.stats.avgMotionMg ? `${qrsData.stats.avgMotionMg}` : '—')} mg
+                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Model Score</span>
+                      <span className="font-mono font-bold text-light-text dark:text-[#F2F2F2] text-xs">
+                        {motionResult.motion_result?.confidence !== undefined ? `${(motionResult.motion_result.confidence * 100).toFixed(0)}%` : '—'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Artifacts</span>
-                      <span className="font-bold text-light-text dark:text-[#F2F2F2] text-xs">
-                        {motionResult.motion_result?.motion_artifacts ?? motionResult.motion_result?.artifact_count ?? 0}
+                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Model Version</span>
+                      <span className="font-mono text-light-text-secondary dark:text-[#9A9A9A] text-xs">
+                        {motionResult.motion_result?.model_version || 'v1'}
                       </span>
                     </div>
                   </div>
@@ -665,23 +684,31 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                 {mlResult ? (
                   <div className="space-y-1 pt-1 border-t border-gray-100 dark:border-[#1a1a1a]">
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Diagnosis:</span>
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">ECG Label:</span>
                       <span className="font-bold text-light-text dark:text-[#F2F2F2]">
-                        {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' : mlResult.label === 'af_suspected' ? 'Atrial Fibrillation Suspected' : mlResult.label === 'other_rhythm' ? 'Other Rhythm Abnormality' : 'Uncertain (Clinical Review)'}
+                        {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' :
+                         mlResult.label === 'af_suspected' ? 'Atrial Fibrillation Suspected' :
+                         mlResult.label === 'other_rhythm' ? 'Other Rhythm Abnormality' :
+                         'Uncertain / Clinical Review'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-light-text-secondary dark:text-[#9A9A9A]">Model Confidence:</span>
-                      <span className="font-mono font-bold text-[#1B7A6E]">{(mlResult.confidence * 100).toFixed(1)}%</span>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-[#1B7A6E]">{(mlResult.confidence * 100).toFixed(1)}%</span>
+                        <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] ml-1">(Model score, not medical certainty)</span>
+                      </div>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-light-text-secondary dark:text-[#9A9A9A]">Signal Quality:</span>
-                      <span className="font-mono font-bold capitalize">{mlResult.quality?.replace('_', ' ')}</span>
+                      <span className="font-mono font-bold capitalize">
+                        {mlResult.quality === 'usable' ? 'Usable Signal' : mlResult.quality === 'poor_signal' ? 'Poor Signal' : mlResult.quality}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-light-text-secondary dark:text-[#9A9A9A]">Clinical Review:</span>
                       <span className={`font-bold ${mlResult.requires_review ? 'text-[#D99B3F]' : 'text-[#22c55e]'}`}>
-                        {mlResult.requires_review ? 'Required' : 'Standard'}
+                        {mlResult.requires_review ? 'Required (Must not be treated as final diagnosis)' : 'Standard'}
                       </span>
                     </div>
                   </div>
@@ -689,7 +716,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                   <div className="pt-1 border-t border-gray-100 dark:border-[#1a1a1a] space-y-1">
                     <div className="flex items-center gap-1.5 text-xs text-light-text-secondary dark:text-[#9A9A9A]">
                       <div className="w-1.5 h-1.5 rounded-full bg-[#D99B3F] animate-pulse" />
-                      <span>Awaiting 3 contiguous 10-second uploads to complete 30-second rhythm window.</span>
+                      <span>Uploads 1 &amp; 2 return motion only. Awaiting 3 contiguous uploads to produce 30s ECG classification.</span>
                     </div>
                   </div>
                 )}
@@ -698,7 +725,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               {/* Research and Development Advisory */}
               <div className="px-2 py-1 bg-[#D99B3F]/10 border border-[#D99B3F]/20 rounded-sm">
                 <p className="text-[9px] text-[#D99B3F] font-mono leading-relaxed">
-                  ⚠ Revision 5 model output for research and development — requires clinical review.
+                  ⚠ Revision {mlResult?.model_version || 3} model output for research and development — requires clinical review. Not a final medical diagnosis.
                 </p>
               </div>
             </div>

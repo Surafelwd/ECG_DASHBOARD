@@ -840,25 +840,26 @@ function AnalysisResultsTable({ rows, formatTimestamp }: any) {
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                 row.label === 'normal' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800' :
                 row.label === 'af_suspected' ? 'bg-rose-950/80 text-rose-300 border border-rose-800' :
-                'bg-amber-950/80 text-amber-300 border border-amber-800'
+                row.label === 'other_rhythm' ? 'bg-amber-950/80 text-amber-300 border border-amber-800' :
+                'bg-yellow-950/80 text-yellow-300 border border-yellow-800'
               }`}>
                 {row.label === 'normal' ? 'Normal Sinus' :
                  row.label === 'af_suspected' ? 'AF Suspected' :
                  row.label === 'other_rhythm' ? 'Other Rhythm' :
-                 'Uncertain'}
+                 'Uncertain / Review'}
               </span>
             </td>
-            <td className="py-2 px-4 text-white font-bold">
+            <td className="py-2 px-4 text-white font-bold" title="Model score from 0 to 1, not medical certainty">
               {(Number(row.confidence) * 100).toFixed(1)}%
             </td>
             <td className="py-2 px-4 capitalize text-gray-300">
-              {row.quality?.replace('_', ' ') || 'usable'}
+              {row.quality === 'usable' ? 'Usable' : row.quality === 'poor_signal' ? 'Poor Signal' : row.quality || 'usable'}
             </td>
             <td className="py-2 px-4">
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
                 row.requires_review ? 'bg-amber-950 text-amber-400 border border-amber-900/50' : 'bg-emerald-950 text-emerald-400'
-              }`}>
-                {row.requires_review ? 'Required' : 'Standard'}
+              }`} title={row.requires_review ? 'Must not be treated as a final diagnosis' : 'Standard'}>
+                {row.requires_review ? 'Review Required' : 'Standard'}
               </span>
             </td>
             <td className="py-2 px-4 text-gray-400 text-[10px]">
@@ -884,9 +885,10 @@ function MotionResultsTable({ rows, formatTimestamp, onViewJson }: any) {
         <tr>
           <th className="py-2.5 px-4">ID</th>
           <th className="py-2.5 px-4">Upload ID</th>
-          <th className="py-2.5 px-4">Activity / Motion Level</th>
-          <th className="py-2.5 px-4">Avg Motion (mg)</th>
-          <th className="py-2.5 px-4">Artifacts</th>
+          <th className="py-2.5 px-4">Verdict</th>
+          <th className="py-2.5 px-4">Confidence</th>
+          <th className="py-2.5 px-4">Model</th>
+          <th className="py-2.5 px-4">Research Only</th>
           <th className="py-2.5 px-4">Recorded At</th>
           <th className="py-2.5 px-4">Motion Data</th>
         </tr>
@@ -894,9 +896,10 @@ function MotionResultsTable({ rows, formatTimestamp, onViewJson }: any) {
       <tbody className="divide-y divide-[#1a1a1a] text-gray-300">
         {rows.map((row: any) => {
           const m = row.motion_result || {};
-          const activity = m.activity_level || m.motion_level || m.status || '10s batch';
-          const avgMg = m.avg_motion_mg ?? m.avg_mg ?? '—';
-          const artifacts = m.motion_artifacts ?? m.artifact_count ?? '—';
+          const verdict = m.verdict || m.activity_level || m.motion_level || '—';
+          const conf = m.confidence !== undefined ? `${(Number(m.confidence) * 100).toFixed(0)}%` : '—';
+          const modelVer = m.model_version || 'v1';
+          const isResearchOnly = m.research_only ?? true;
           return (
             <tr key={row.id} className="hover:bg-[#121212] transition-colors">
               <td className="py-2 px-4 text-gray-500 font-bold">{row.id}</td>
@@ -905,11 +908,20 @@ function MotionResultsTable({ rows, formatTimestamp, onViewJson }: any) {
               </td>
               <td className="py-2 px-4">
                 <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#1B7A6E]/20 text-[#1B7A6E] border border-[#1B7A6E]/30">
-                  {activity}
+                  {verdict === 'supine' ? 'Supine' :
+                   verdict === 'upright_stationary' ? 'Upright Stationary' :
+                   verdict === 'walking' ? 'Walking' : verdict}
                 </span>
               </td>
-              <td className="py-2 px-4 text-white font-bold">{avgMg}</td>
-              <td className="py-2 px-4 text-gray-400">{artifacts}</td>
+              <td className="py-2 px-4 text-white font-bold">{conf}</td>
+              <td className="py-2 px-4 text-gray-400">{modelVer}</td>
+              <td className="py-2 px-4">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
+                  isResearchOnly ? 'text-amber-400 bg-amber-950/50 border border-amber-900/40' : 'text-gray-400'
+                }`}>
+                  {isResearchOnly ? 'Yes' : 'No'}
+                </span>
+              </td>
               <td className="py-2 px-4 whitespace-nowrap text-gray-400">{formatTimestamp(row.created_at)}</td>
               <td className="py-2 px-4">
                 <button
