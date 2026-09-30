@@ -456,7 +456,12 @@ export default function App() {
         {currentView === 'telemetry' && (
           <div className="h-full flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-[#050505] overflow-hidden">
             <div className="w-full max-w-7xl h-full relative z-0 shadow-2xl">
-              <TelemetryDashboard deviceId={targetDeviceId || 'DEV-0198'} context="device-detail" />
+              <TelemetryDashboard
+                deviceId={targetDeviceId || 'DEV-0198'}
+                ownerName={devices.find(d => d.id === targetDeviceId)?.ownerName}
+                context="device-detail"
+                onBack={() => navigateToDevices(targetDeviceId || undefined)}
+              />
             </div>
           </div>
         )}

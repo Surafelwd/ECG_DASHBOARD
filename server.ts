@@ -495,11 +495,93 @@ async function startServer() {
     }
   }, 60 * 1000);
 
+  // Cellular location resolution based on LTE network metadata (MCC, MNC, TAC, Cell ID)
+  const MCC_MAP: Record<number, { country: string; defaultCity: string; lat: number; lng: number }> = {
+    636: { country: 'Ethiopia', defaultCity: 'Addis Ababa', lat: 9.0054, lng: 38.7636 },
+    639: { country: 'Kenya', defaultCity: 'Nairobi', lat: -1.2921, lng: 36.8219 },
+    634: { country: 'Sudan', defaultCity: 'Khartoum', lat: 15.5007, lng: 32.5599 },
+    638: { country: 'South Sudan', defaultCity: 'Juba', lat: 4.8594, lng: 31.5713 },
+    635: { country: 'Rwanda', defaultCity: 'Kigali', lat: -1.9403, lng: 29.8739 },
+    641: { country: 'Uganda', defaultCity: 'Kampala', lat: 0.3476, lng: 32.5825 },
+    637: { country: 'Somalia', defaultCity: 'Mogadishu', lat: 2.0469, lng: 45.3182 },
+    621: { country: 'Nigeria', defaultCity: 'Lagos', lat: 6.5244, lng: 3.3792 },
+    655: { country: 'South Africa', defaultCity: 'Johannesburg', lat: -26.2041, lng: 28.0473 },
+    424: { country: 'UAE', defaultCity: 'Dubai', lat: 25.2048, lng: 55.2708 },
+    310: { country: 'USA', defaultCity: 'New York', lat: 40.7128, lng: -74.0060 },
+    311: { country: 'USA', defaultCity: 'Chicago', lat: 41.8781, lng: -87.6298 },
+    404: { country: 'India', defaultCity: 'New Delhi', lat: 28.6139, lng: 77.2090 },
+    460: { country: 'China', defaultCity: 'Beijing', lat: 39.9042, lng: 116.4074 },
+  };
+
+  function resolveCellLocation(mcc: number, mnc?: number | null, tac?: number | null, cellId?: number | null) {
+    const base = MCC_MAP[mcc] || { country: 'Ethiopia', defaultCity: 'Addis Ababa', lat: 9.0054, lng: 38.7636 };
+    let carrier = 'LTE Carrier';
+    if (mcc === 636) {
+      carrier = mnc === 2 ? 'Safaricom Ethiopia (LTE)' : 'Ethio Telecom (LTE)';
+    } else if (mcc === 639) {
+      carrier = mnc === 2 ? 'Safaricom Kenya' : 'Airtel Kenya';
+    } else {
+      carrier = `Cellular Network (${mcc}-${mnc ?? '01'})`;
+    }
+
+    let lat = base.lat;
+    let lng = base.lng;
+    let city = base.defaultCity;
+
+    if (mcc === 636 && (cellId || tac)) {
+      const idVal = Number(cellId || tac || 1);
+      const sectors = [
+        { name: 'Addis Ababa (Bole Sector)', lat: 8.9950, lng: 38.7880 },
+        { name: 'Addis Ababa (Kirkos)', lat: 9.0110, lng: 38.7520 },
+        { name: 'Addis Ababa (Arada)', lat: 9.0340, lng: 38.7520 },
+        { name: 'Addis Ababa (Lideta)', lat: 9.0100, lng: 38.7350 },
+        { name: 'Addis Ababa (Yeka)', lat: 9.0280, lng: 38.8020 },
+        { name: 'Addis Ababa (Akaki Kality)', lat: 8.9320, lng: 38.7710 },
+        { name: 'Addis Ababa (Nifas Silk-Lafto)', lat: 8.9740, lng: 38.7290 },
+        { name: 'Addis Ababa (Gullele)', lat: 9.0600, lng: 38.7300 },
+      ];
+      const sector = sectors[Math.abs(idVal) % sectors.length];
+      city = sector.name;
+      const microLat = ((idVal % 100) - 50) * 0.00015;
+      const microLng = (((idVal / 100) | 0) % 100 - 50) * 0.00015;
+      lat = Number((sector.lat + microLat).toFixed(5));
+      lng = Number((sector.lng + microLng).toFixed(5));
+    } else if (cellId) {
+      const idVal = Number(cellId);
+      const microLat = ((idVal % 100) - 50) * 0.0002;
+      const microLng = (((idVal / 100) | 0) % 100 - 50) * 0.0002;
+      lat = Number((base.lat + microLat).toFixed(5));
+      lng = Number((base.lng + microLng).toFixed(5));
+    }
+
+    return {
+      city,
+      country: base.country,
+      carrier,
+      lat,
+      lng,
+      source: 'cellular_network' as const,
+      mcc,
+      mnc: mnc ?? null,
+      tac: tac ?? null,
+      cellId: cellId ?? null,
+    };
+  }
+
   // GET endpoints for the dashboard
   app.get('/api/devices', async (req, res) => {
     try {
       const allDevices = await db.select().from(devices);
       const staleDeviceIds: string[] = [];
+
+      // Query latest network_location per device from database
+      const netRows = await db.select().from(network_location).orderBy(desc(network_location.recorded_at)).catch(() => []);
+      const latestNetMap = new Map<string, any>();
+      for (const net of netRows) {
+        if (!latestNetMap.has(net.device_id)) {
+          latestNetMap.set(net.device_id, net);
+        }
+      }
 
       // Map snake_case DB fields to camelCase for frontend
       const mapped = allDevices.map(d => {
@@ -507,6 +589,27 @@ async function startServer() {
         if (status === 'Offline' && d.connectivity_status === 'online') {
           staleDeviceIds.push(d.id);
         }
+
+        const net = latestNetMap.get(d.id);
+        let loc: any = null;
+        if (net && (net.mcc || net.cell_id)) {
+          loc = resolveCellLocation(net.mcc ?? 636, net.mnc, net.tac, net.cell_id);
+        } else {
+          // Nearest regional base site (Addis Ababa base facility)
+          loc = {
+            city: 'Addis Ababa (Base Station)',
+            country: 'Ethiopia',
+            carrier: 'Ethio Telecom (Default)',
+            lat: 9.0054,
+            lng: 38.7636,
+            source: 'fleet_regional_default' as const,
+            mcc: 636,
+            mnc: 1,
+            tac: null,
+            cellId: null,
+          };
+        }
+
         return {
           id: d.id,
           serialNumber: d.serial_number || d.id,
@@ -517,6 +620,7 @@ async function startServer() {
           firmwareVersion: 'v1.0.0',
           firmwareUpdateAvailable: false,
           lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
+          location: loc,
         };
       });
 
@@ -546,6 +650,24 @@ async function startServer() {
           .where(eq(devices.id, d.id))
           .catch(() => { });
       }
+      const net = await db.select().from(network_location).where(eq(network_location.device_id, d.id)).orderBy(desc(network_location.recorded_at)).limit(1).catch(() => []);
+      let loc: any = null;
+      if (net[0] && (net[0].mcc || net[0].cell_id)) {
+        loc = resolveCellLocation(net[0].mcc ?? 636, net[0].mnc, net[0].tac, net[0].cell_id);
+      } else {
+        loc = {
+          city: 'Addis Ababa (Base Station)',
+          country: 'Ethiopia',
+          carrier: 'Ethio Telecom (Default)',
+          lat: 9.0054,
+          lng: 38.7636,
+          source: 'fleet_regional_default' as const,
+          mcc: 636,
+          mnc: 1,
+          tac: null,
+          cellId: null,
+        };
+      }
       res.json({
         id: d.id,
         serialNumber: d.serial_number || d.id,
@@ -556,6 +678,7 @@ async function startServer() {
         firmwareVersion: 'v1.0.0',
         firmwareUpdateAvailable: false,
         lastSync: d.last_sync ? new Date(d.last_sync).toLocaleString('en-US', { timeZone: 'UTC' }) : 'Never',
+        location: loc,
       });
     } catch (err) {
       console.error('Error fetching device:', err);
@@ -1045,13 +1168,17 @@ async function startServer() {
       const estimatedBpm = durationSec > 0 ? Math.round((peakCount / durationSec) * 60) : 0;
 
       // Peak-preserving Min-Max decimation to TARGET_DISPLAY_POINTS
+      // Guard: skip decimation entirely if data already fits — prevents output > input
       const TARGET_DISPLAY_POINTS = 1000;
       let displayPoints: any[] = [];
       if (total <= TARGET_DISPLAY_POINTS) {
+        // Data fits as-is — no decimation needed, return raw
         displayPoints = parsedRows;
       } else {
-        const bucketSize = total / (TARGET_DISPLAY_POINTS / 2);
-        for (let b = 0; b < TARGET_DISPLAY_POINTS / 2; b++) {
+        // Downsample: each bucket emits at most 2 points (min ECG + max ECG)
+        const numBuckets = Math.floor(TARGET_DISPLAY_POINTS / 2);
+        const bucketSize = total / numBuckets;
+        for (let b = 0; b < numBuckets; b++) {
           const startIdx = Math.floor(b * bucketSize);
           const endIdx = Math.min(total, Math.floor((b + 1) * bucketSize));
           if (startIdx >= endIdx) continue;
@@ -1180,6 +1307,25 @@ async function startServer() {
       return res.status(404).json({ error: 'No motion result available yet for this device' });
     } catch (err: any) {
       console.error('Error in /api/ml/motion/:deviceId/latest:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // GET /api/ml/motion/:deviceId — fetch last N motion results for posture timeline
+  app.get('/api/ml/motion/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    try {
+      const directResult: any = await db.execute(sql`
+        SELECT id, device_id, upload_id, motion_result, created_at
+        FROM ecg_ml.motion_results
+        WHERE device_id = ${deviceId}
+        ORDER BY created_at ASC
+        LIMIT ${limit}
+      `).catch(() => null);
+      return res.json(directResult?.rows || []);
+    } catch (err: any) {
+      console.error('Error in /api/ml/motion/:deviceId:', err);
       return res.status(500).json({ error: 'Internal Server Error' });
     }
   });

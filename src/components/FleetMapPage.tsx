@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from 'react-leaflet';
 import * as L from 'leaflet';
-import { MapPin, Wifi, Battery } from 'lucide-react';
+import { MapPin, Wifi, Radio, Signal } from 'lucide-react';
 
 // Custom colored circle markers
 function createDeviceIcon(isOnline: boolean, isSelected: boolean) {
@@ -28,48 +28,43 @@ function createDeviceIcon(isOnline: boolean, isSelected: boolean) {
 function FitBounds({ devices }: { devices: any[] }) {
   const map = useMap();
   useEffect(() => {
-    const valid = devices.filter(d => d.location);
+    const valid = devices.filter(d => d.location && typeof d.location.lat === 'number' && typeof d.location.lng === 'number');
     if (valid.length === 0) return;
     const bounds = L.latLngBounds(valid.map((d: any) => [d.location.lat, d.location.lng]));
-    map.fitBounds(bounds, { padding: [60, 60] });
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
   }, [map, devices]);
   return null;
+}
+
+interface DeviceLocation {
+  city: string;
+  country: string;
+  carrier?: string;
+  lat: number;
+  lng: number;
+  source?: string;
+  mcc?: number | null;
+  mnc?: number | null;
+  tac?: number | null;
+  cellId?: number | null;
 }
 
 interface Device {
   id: string;
   ownerName: string;
   connectivityStatus: string;
-  batteryLevel: number;
+  batteryLevel?: number;
   signalStrength: number;
   lastSync: string;
-  location?: { city: string; country: string; lat: number; lng: number };
+  location?: DeviceLocation;
 }
 
 export default function FleetMapPage({ devices, onViewDevice }: { devices: Device[]; onViewDevice?: (id: string) => void }) {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'online' | 'offline'>('all');
 
-  // Inject dummy locations if real devices have none
-  const DUMMY_LOCATIONS = [
-    { city: 'Addis Ababa', country: 'Ethiopia', lat: 9.0054, lng: 38.7636 },
-    { city: 'New York', country: 'USA', lat: 40.7128, lng: -74.0060 },
-    { city: 'Mumbai', country: 'India', lat: 19.0760, lng: 72.8777 },
-    { city: 'Shanghai', country: 'China', lat: 31.2304, lng: 121.4737 },
-    { city: 'Bucharest', country: 'Romania', lat: 44.4268, lng: 26.1025 },
-    { city: 'Lagos', country: 'Nigeria', lat: 6.5244, lng: 3.3792 },
-    { city: 'Dubai', country: 'UAE', lat: 25.2048, lng: 55.2708 },
-    { city: 'Seoul', country: 'South Korea', lat: 37.5665, lng: 126.9780 },
-    { city: 'Dakar', country: 'Senegal', lat: 14.7167, lng: -17.4677 },
-    { city: 'São Paulo', country: 'Brazil', lat: -23.5505, lng: -46.6333 },
-  ];
-
-  const devicesWithLoc = devices.map((d, i) => ({
-    ...d,
-    location: d.location || DUMMY_LOCATIONS[i % DUMMY_LOCATIONS.length]
-  }));
-
-  const mappable = devicesWithLoc.filter(d => d.location);
+  // Use real location data resolved from the database network_location table (no dummy locations)
+  const mappable = devices.filter(d => d.location && typeof d.location.lat === 'number' && typeof d.location.lng === 'number');
   const filtered = mappable.filter(d => {
     if (filterStatus === 'online') return d.connectivityStatus === 'Online';
     if (filterStatus === 'offline') return d.connectivityStatus !== 'Online';
@@ -77,6 +72,7 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
   });
   const online = mappable.filter(d => d.connectivityStatus === 'Online').length;
   const offline = mappable.length - online;
+  const cellularSourced = mappable.filter(d => d.location?.source === 'cellular_network').length;
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-[#050505] text-light-text dark:text-dark-text overflow-hidden">
@@ -90,7 +86,7 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
               Global Fleet Map
             </h1>
             <p className="text-sm text-light-text-secondary dark:text-[#9A9A9A]">
-              Real-time device locations across {mappable.length} registered sites. Powered by OpenStreetMap.
+              Real-time cellular network locations resolved from database LTE metadata (MCC/MNC/Cell ID). {cellularSourced} cellular-locked.
             </p>
           </div>
           <div className="flex items-center gap-8">
@@ -106,7 +102,7 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
             <div className="w-px h-8 bg-gray-200 dark:bg-[#262626]" />
             <div className="text-center">
               <div className="text-2xl font-bold">{mappable.length}</div>
-              <div className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Total</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Total Located</div>
             </div>
           </div>
         </div>
@@ -131,12 +127,12 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
         {/* Constrained Map Container */}
         <div className="w-full max-w-6xl h-full relative z-0 rounded-lg overflow-hidden border border-gray-200 dark:border-[#262626] shadow-xl">
           <MapContainer
-            center={[20, 10]}
-            zoom={2}
+            center={[9.0054, 38.7636]}
+            zoom={11}
             style={{ height: '100%', width: '100%' }}
             zoomControl={true}
           >
-            {/* Standard OpenStreetMap tiles (100% free, no API key) */}
+            {/* Standard OpenStreetMap tiles */}
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -161,7 +157,7 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
                 >
                   <Tooltip direction="top" offset={[0, -10]} opacity={1} className="custom-tooltip">
                     <div className="font-bold text-xs">{device.location.city}</div>
-                    <div className="text-[10px] opacity-80">{device.id}</div>
+                    <div className="text-[10px] opacity-80">{device.id} · {device.location.carrier || 'LTE'}</div>
                   </Tooltip>
                   
                   <Popup closeButton={false} className="leaflet-popup-custom">
@@ -170,7 +166,7 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
                       border: '1px solid #262626',
                       borderRadius: '4px',
                       padding: '16px',
-                      minWidth: '220px',
+                      minWidth: '240px',
                       fontFamily: 'Inter, sans-serif',
                       color: '#F2F2F2'
                     }}>
@@ -198,10 +194,18 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
                       </div>
 
                       <div style={{ borderTop: '1px solid #262626', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                          <span style={{ color: '#9A9A9A', textTransform: 'uppercase', fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.05em' }}>Battery</span>
-                          <span style={{ fontWeight: 'bold', color: device.batteryLevel < 20 ? '#C4453D' : device.batteryLevel < 50 ? '#D99B3F' : '#1B7A6E' }}>{device.batteryLevel}%</span>
-                        </div>
+                        {device.location.carrier && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                            <span style={{ color: '#9A9A9A', textTransform: 'uppercase', fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.05em' }}>Carrier</span>
+                            <span style={{ fontWeight: 'bold', color: '#1B7A6E' }}>{device.location.carrier}</span>
+                          </div>
+                        )}
+                        {device.location.cellId !== undefined && device.location.cellId !== null && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                            <span style={{ color: '#9A9A9A', textTransform: 'uppercase', fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.05em' }}>Cell ID / TAC</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{device.location.cellId} {device.location.tac ? `/ TAC ${device.location.tac}` : ''}</span>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
                           <span style={{ color: '#9A9A9A', textTransform: 'uppercase', fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.05em' }}>Signal</span>
                           <span style={{ fontWeight: 'bold' }}>{device.signalStrength}/4</span>
@@ -211,8 +215,10 @@ export default function FleetMapPage({ devices, onViewDevice }: { devices: Devic
                           <span style={{ fontFamily: 'monospace' }}>{device.lastSync}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                          <span style={{ color: '#C4453D', textTransform: 'uppercase', fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.05em' }}>Recent Alarm</span>
-                          <span style={{ fontFamily: 'monospace', color: '#C4453D' }}>{isOnline ? 'None' : 'Connection Lost'}</span>
+                          <span style={{ color: '#9A9A9A', textTransform: 'uppercase', fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.05em' }}>Location Source</span>
+                          <span style={{ fontSize: '9px', fontWeight: 'bold', color: device.location.source === 'cellular_network' ? '#1B7A6E' : '#D99B3F' }}>
+                            {device.location.source === 'cellular_network' ? 'LTE Base Station' : 'Fleet Regional Default'}
+                          </span>
                         </div>
                       </div>
 

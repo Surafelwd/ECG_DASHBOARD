@@ -683,7 +683,7 @@ function EventsTable({ rows, formatTimestamp, onViewJson }: any) {
               {row.payload ? (
                 <button
                   onClick={() => onViewJson(row.payload)}
-                  className="px-2 py-0.5 rounded bg-[#1e1e1e] hover:bg-[#282828] text-emerald-400 text-[10px] border border-[#333]"
+                  className="px-2 py-0.5 rounded bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] text-[10px] border border-[#1B7A6E]/30"
                 >
                   View JSON
                 </button>
@@ -718,7 +718,7 @@ function NetworkLocationTable({ rows, formatTimestamp }: any) {
             <td className="py-2 px-4 text-gray-500 font-bold">{row.id}</td>
             <td className="py-2 px-4 text-[#D99B3F] font-bold">{row.mcc ?? '—'}</td>
             <td className="py-2 px-4 text-white">{row.mnc ?? '—'}</td>
-            <td className="py-2 px-4 text-emerald-400 font-bold">{row.tac ?? '—'}</td>
+            <td className="py-2 px-4 text-[#1B7A6E] font-bold">{row.tac ?? '—'}</td>
             <td className="py-2 px-4 text-white font-bold">{row.cell_id ?? '—'}</td>
             <td className="py-2 px-4 text-gray-500 text-[10px]" title={row.session_id}>
               {row.session_id?.slice(0, 8)}...
@@ -792,10 +792,10 @@ function AnalysisJobsTable({ rows, formatTimestamp }: any) {
             </td>
             <td className="py-2 px-4">
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                row.status === 'completed' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/50' :
-                row.status === 'running' ? 'bg-blue-950 text-blue-400 border border-blue-900/50 animate-pulse' :
-                row.status === 'failed' ? 'bg-rose-950 text-rose-400 border border-rose-900/50' :
-                'bg-amber-950 text-amber-400 border border-amber-900/50'
+                row.status === 'completed' ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30' :
+                row.status === 'running' ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30 animate-pulse' :
+                row.status === 'failed' ? 'bg-[#C4453D]/10 text-[#C4453D] border border-[#C4453D]/30' :
+                'bg-[#D99B3F]/10 text-[#D99B3F] border border-[#D99B3F]/30'
               }`}>
                 {row.status}
               </span>
@@ -838,10 +838,10 @@ function AnalysisResultsTable({ rows, formatTimestamp }: any) {
             </td>
             <td className="py-2 px-4">
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                row.label === 'normal' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800' :
-                row.label === 'af_suspected' ? 'bg-rose-950/80 text-rose-300 border border-rose-800' :
-                row.label === 'other_rhythm' ? 'bg-amber-950/80 text-amber-300 border border-amber-800' :
-                'bg-yellow-950/80 text-yellow-300 border border-yellow-800'
+                row.label === 'normal' ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30' :
+                row.label === 'af_suspected' ? 'bg-[#C4453D]/10 text-[#C4453D] border border-[#C4453D]/30' :
+                row.label === 'other_rhythm' ? 'bg-[#D99B3F]/10 text-[#D99B3F] border border-[#D99B3F]/30' :
+                'bg-[#9A9A9A]/10 text-[#9A9A9A] border border-[#9A9A9A]/30'
               }`}>
                 {row.label === 'normal' ? 'Normal Sinus' :
                  row.label === 'af_suspected' ? 'AF Suspected' :
@@ -857,7 +857,7 @@ function AnalysisResultsTable({ rows, formatTimestamp }: any) {
             </td>
             <td className="py-2 px-4">
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                row.requires_review ? 'bg-amber-950 text-amber-400 border border-amber-900/50' : 'bg-emerald-950 text-emerald-400'
+                row.requires_review ? 'bg-[#D99B3F]/10 text-[#D99B3F] border border-[#D99B3F]/30' : 'bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/30'
               }`} title={row.requires_review ? 'Must not be treated as a final diagnosis' : 'Standard'}>
                 {row.requires_review ? 'Review Required' : 'Standard'}
               </span>
@@ -926,7 +926,7 @@ function MotionResultsTable({ rows, formatTimestamp, onViewJson }: any) {
               <td className="py-2 px-4">
                 <button
                   onClick={() => onViewJson(m)}
-                  className="px-2 py-0.5 rounded bg-[#1e1e1e] hover:bg-[#282828] text-emerald-400 text-[10px] border border-[#333]"
+                  className="px-2 py-0.5 rounded bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 text-[#1B7A6E] text-[10px] border border-[#1B7A6E]/30"
                 >
                   View JSON
                 </button>

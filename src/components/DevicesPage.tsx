@@ -8,7 +8,7 @@ import DeviceDatabaseTables from './DeviceDatabaseTables';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  AreaChart, Area, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart, Brush
+  AreaChart, Area, ComposedChart, Brush
 } from 'recharts';
 
 // --- TYPES ---
@@ -149,6 +149,8 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
   } | null>(null);
   const [alarms, setAlarms] = useState<any[]>([]);
   const [isLoadingAlarms, setIsLoadingAlarms] = useState(false);
+  const [mlAnalyses, setMlAnalyses] = useState<any[]>([]);
+  const [motionHistory, setMotionHistory] = useState<any[]>([]);
 
   useEffect(() => {
     if (!device?.id) return;
@@ -207,6 +209,18 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
       .catch(() => {
         setIsLoadingAlarms(false);
       });
+
+    // Fetch ML analyses history for Rhythm History chart
+    fetch(`/api/ml/analyses/${encodeURIComponent(device.id)}?limit=20`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setMlAnalyses(Array.isArray(data) ? [...data].reverse() : []))
+      .catch(() => setMlAnalyses([]));
+
+    // Fetch motion history for Posture Timeline chart
+    fetch(`/api/ml/motion/${encodeURIComponent(device.id)}?limit=20`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setMotionHistory(Array.isArray(data) ? data : []))
+      .catch(() => setMotionHistory([]));
   }, [device?.id, selectedSessionId]);
 
   const chartPoints = qrsData?.points && qrsData.points.length > 0 ? qrsData.points : [];
@@ -358,7 +372,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               {qrsData?.stats && (
                 <div className="flex items-center gap-1 text-[9px] font-mono">
                   {qrsData.stats.estimatedBpm && (
-                    <span className="px-1 py-0.5 rounded bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20 font-bold">
+                    <span className="px-1 py-0.5 rounded bg-[#1B7A6E]/10 text-[#1B7A6E] border border-[#1B7A6E]/20 font-bold">
                       ♥ {qrsData.stats.estimatedBpm} BPM
                     </span>
                   )}
@@ -372,7 +386,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
 
           <div
             ref={chartContainerRef}
-            className="h-[420px] md:h-[480px] bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1.5 border border-gray-100 dark:border-[#1a1a1a] cursor-crosshair select-none"
+            className="h-[520px] md:h-[580px] bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1.5 border border-gray-100 dark:border-[#1a1a1a] cursor-crosshair select-none"
           >
             {isLoadingQrs ? (
               <div className="h-full flex items-center justify-center text-xs text-light-text-secondary dark:text-[#9A9A9A]">
@@ -391,7 +405,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                 >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" opacity={0.3} />
                   <XAxis dataKey="relSec" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="left" domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#22c55e' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}mV`} />
+                  <YAxis yAxisId="left" domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#1B7A6E' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}mV`} />
                   <YAxis yAxisId="right" orientation="right" domain={[500, 1800]} tick={{ fontSize: 9, fill: '#C4453D' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}mg`} />
                   <RechartsTooltip
                     content={({ active, payload }) => {
@@ -405,8 +419,8 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                             <span className="text-[#1B7A6E] font-bold">+{pt.relSec}</span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
-                            <span className="flex items-center gap-1.5 text-[#22c55e] font-semibold text-[10px]">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" /> ECG Lead II:
+                            <span className="flex items-center gap-1.5 text-[#1B7A6E] font-semibold text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#1B7A6E]" /> ECG Lead II:
                             </span>
                             <span className="font-mono font-bold text-white text-[10px]">
                               {typeof pt.ecg === 'number' ? pt.ecg.toFixed(3) : pt.ecg} mV
@@ -430,7 +444,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                     }}
                   />
                   <Area yAxisId="right" type="step" dataKey="motion" name="Motion Magnitude (mg)" fill="#C4453D" fillOpacity={0.15} stroke="#C4453D" strokeWidth={1} isAnimationActive={false} />
-                  <Line yAxisId="left" type="monotone" dataKey="ecg" name="ECG Lead II (mV)" stroke="#22c55e" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Line yAxisId="left" type="monotone" dataKey="ecg" name="ECG Lead II (mV)" stroke="#1B7A6E" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                   <Brush
                     dataKey="relSec"
                     height={26}
@@ -465,90 +479,12 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               </div>
               <div>
                 <span className="text-[8px] uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Heart Rate Estimate</span>
-                <p className="text-xs font-mono font-bold text-[#22c55e]">{qrsData.stats.estimatedBpm ? `${qrsData.stats.estimatedBpm} BPM` : 'Stable'}</p>
+                <p className="text-xs font-mono font-bold text-[#1B7A6E]">{qrsData.stats.estimatedBpm ? `${qrsData.stats.estimatedBpm} BPM` : 'Stable'}</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* 2. Performance Trends */}
-        <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-2 flex items-center">
-            <Activity size={13} className="mr-1.5 text-[#1B7A6E]" /> Performance Trends
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col">
-              <div className="flex justify-between items-end mb-1">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">Signal Stability</span>
-                <span className="text-xs font-bold text-[#1B7A6E]">{qrsData?.stats.signalStability ?? 94}%</span>
-              </div>
-              <div className="h-36 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={[
-                    { time: 'Day 1', val: 80 }, { time: 'Day 2', val: 85 }, { time: 'Day 3', val: 90 },
-                    { time: 'Day 4', val: 85 }, { time: 'Day 5', val: 95 }, { time: 'Day 6', val: 100 },
-                    { time: 'Day 7', val: 94 }
-                  ]} margin={{ top: 6, right: 6, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorSignal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#1B7A6E" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
-                    <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} />
-                    <RechartsTooltip
-                      contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '10px', color: '#F2F2F2', padding: '4px 8px' }}
-                      itemStyle={{ color: '#1B7A6E', fontWeight: 'bold' }}
-                      labelStyle={{ display: 'none' }}
-                      formatter={(val: number) => [`${val}%`, 'Signal']}
-                    />
-                    <Area type="monotone" dataKey="val" stroke="#1B7A6E" strokeWidth={2} fillOpacity={1} fill="url(#colorSignal)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="flex flex-col">
-              <div className="flex justify-between items-end mb-1">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">ML Motion Acceleration</span>
-                <span className="text-xs font-bold text-[#1B7A6E]">
-                  {qrsData?.stats.avgMotionMg ? `${qrsData.stats.avgMotionMg} mg` : '1000 mg'}
-                </span>
-              </div>
-              <div className="h-36 bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-1 border border-gray-100 dark:border-[#1a1a1a]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={[
-                    { time: '10s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 0.97) : 980 },
-                    { time: '20s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 1.02) : 1010 },
-                    { time: '30s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 0.99) : 995 },
-                    { time: '40s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 1.03) : 1030 },
-                    { time: '50s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg * 0.98) : 985 },
-                    { time: '60s', val: qrsData?.stats.avgMotionMg ? Math.round(qrsData.stats.avgMotionMg) : 1000 },
-                  ]} margin={{ top: 6, right: 6, left: -10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorMotion" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#1B7A6E" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
-                    <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
-                    <YAxis domain={['dataMin - 30', 'dataMax + 30']} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}`} />
-                    <RechartsTooltip
-                      contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '10px', color: '#F2F2F2', padding: '4px 8px' }}
-                      itemStyle={{ color: '#1B7A6E', fontWeight: 'bold' }}
-                      labelStyle={{ display: 'none' }}
-                      formatter={(val: number) => [`${val} mg`, 'Motion Accel']}
-                    />
-                    <Area type="monotone" dataKey="val" stroke="#1B7A6E" strokeWidth={2} fillOpacity={1} fill="url(#colorMotion)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* 3. AI Health Insights (Graphical & ML Model Results) */}
         <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
@@ -573,7 +509,7 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
               {/* 30s Rhythm Badge */}
               {mlResult && (
                 <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${mlResult.label === 'normal'
-                    ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
+                    ? 'bg-[#1B7A6E]/10 text-[#1B7A6E] border-[#1B7A6E]/30'
                     : mlResult.label === 'af_suspected'
                       ? 'bg-[#C4453D]/10 text-[#C4453D] border-[#C4453D]/30'
                       : 'bg-[#D99B3F]/10 text-[#D99B3F] border-[#D99B3F]/30'
@@ -587,34 +523,12 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-4 items-center">
-            {/* Graphical Radar Chart based on actual metrics */}
-            <div className="w-full md:w-5/12 h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart outerRadius="70%" data={[
-                  { subject: 'Signal Stability', A: qrsData?.stats.signalStability ?? 94, fullMark: 100 },
-                  { subject: 'Data Usability', A: mlResult?.quality === 'usable' ? 98 : mlResult?.quality === 'poor_signal' ? 45 : (qrsData?.stats.signalStability ?? 90), fullMark: 100 },
-                  { subject: 'Model Confidence', A: mlResult?.confidence !== undefined ? Math.round(mlResult.confidence * 100) : (qrsData?.stats.estimatedBpm ? 92 : 80), fullMark: 100 },
-                  { subject: 'Motion Quality', A: qrsData?.stats.signalStability ?? 95, fullMark: 100 },
-                  { subject: 'Sync Reliability', A: device.connectivityStatus === 'Online' ? 99 : 85, fullMark: 100 },
-                ]}>
-                  <PolarGrid stroke="#333" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#9A9A9A', fontSize: 9 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                  <Radar name="Device Health" dataKey="A" stroke="#1B7A6E" fill="#1B7A6E" fillOpacity={0.3} />
-                  <RechartsTooltip
-                    contentStyle={{ backgroundColor: '#121212', borderColor: '#262626', fontSize: '11px', color: '#F2F2F2' }}
-                    itemStyle={{ color: '#1B7A6E', fontWeight: 'bold' }}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-
+          <div className="flex flex-col gap-3">
             {/* Real ML Results / Insights (Both 10s Motion & 30s Rhythm) */}
-            <div className="w-full md:w-7/12 space-y-2.5">
+            <div className="space-y-2.5">
               {/* Card 1: 10-Second Upload Packet Motion Result (Every upload) */}
-              <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1.5">
-                <div className="flex justify-between items-center">
+              <div className="p-3 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm flex flex-col justify-between">
+                <div className="flex justify-between items-center mb-2">
                   <div className="flex items-center gap-1.5">
                     <Activity size={12} className="text-[#1B7A6E]" />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-light-text dark:text-[#F2F2F2]">
@@ -633,43 +547,38 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                   </div>
                 </div>
 
-                {motionResult ? (
-                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-100 dark:border-[#1a1a1a] text-xs">
-                    <div>
-                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Posture / Verdict</span>
-                      <span className="font-bold text-[#1B7A6E] capitalize text-xs">
-                        {motionResult.motion_result?.verdict === 'supine' ? 'Supine' :
-                         motionResult.motion_result?.verdict === 'upright_stationary' ? 'Upright Stationary' :
-                         motionResult.motion_result?.verdict === 'walking' ? 'Walking' :
-                         motionResult.motion_result?.verdict || motionResult.motion_result?.activity_level || 'Active'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Model Score</span>
-                      <span className="font-mono font-bold text-light-text dark:text-[#F2F2F2] text-xs">
-                        {motionResult.motion_result?.confidence !== undefined ? `${(motionResult.motion_result.confidence * 100).toFixed(0)}%` : '—'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Model Version</span>
-                      <span className="font-mono text-light-text-secondary dark:text-[#9A9A9A] text-xs">
-                        {motionResult.motion_result?.model_version || 'v1'}
-                      </span>
-                    </div>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-[#1a1a1a] text-xs">
+                  <div>
+                    <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Posture / Verdict</span>
+                    <span className="font-bold text-[#1B7A6E] capitalize text-xs">
+                      {motionResult ? (
+                        motionResult.motion_result?.verdict === 'supine' ? 'Supine' :
+                        motionResult.motion_result?.verdict === 'upright_stationary' ? 'Upright Stationary' :
+                        motionResult.motion_result?.verdict === 'walking' ? 'Walking' :
+                        motionResult.motion_result?.verdict || motionResult.motion_result?.activity_level || 'Active'
+                      ) : (
+                        <span className="text-light-text-secondary dark:text-[#9A9A9A] font-normal italic">Awaiting packet...</span>
+                      )}
+                    </span>
                   </div>
-                ) : (
-                  <div className="text-[10px] text-light-text-secondary dark:text-[#9A9A9A] flex items-center justify-between pt-1 border-t border-gray-100 dark:border-[#1a1a1a]">
-                    <span>Awaiting initial 10s packet motion analysis...</span>
-                    {qrsData?.stats && (
-                      <span className="font-mono text-[9px]">Local Accel: <b>{qrsData.stats.avgMotionMg} mg</b></span>
-                    )}
+                  <div>
+                    <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Model Score</span>
+                    <span className="font-mono font-bold text-light-text dark:text-[#F2F2F2] text-xs">
+                      {motionResult?.motion_result?.confidence !== undefined ? `${(motionResult.motion_result.confidence * 100).toFixed(0)}%` : '—'}
+                    </span>
                   </div>
-                )}
+                  <div>
+                    <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] block uppercase font-mono">Model Version</span>
+                    <span className="font-mono text-light-text-secondary dark:text-[#9A9A9A] text-xs">
+                      {motionResult?.motion_result?.model_version || (qrsData?.stats ? `${qrsData.stats.avgMotionMg} mg` : 'v1')}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Card 2: 30-Second Continuous Rhythm Classification (Every 3 contiguous uploads) */}
-              <div className="p-2.5 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm space-y-1.5">
-                <div className="flex justify-between items-center">
+              <div className="p-3 bg-gray-50 dark:bg-[#0a0a0a] border border-gray-100 dark:border-[#1a1a1a] rounded-sm flex flex-col justify-between">
+                <div className="flex justify-between items-center mb-2">
                   <div className="flex items-center gap-1.5">
                     <Zap size={12} className="text-[#D99B3F]" />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-light-text dark:text-[#F2F2F2]">
@@ -681,56 +590,243 @@ const DeviceAnalysisSection = ({ device }: { device: any }) => {
                   </span>
                 </div>
 
-                {mlResult ? (
-                  <div className="space-y-1 pt-1 border-t border-gray-100 dark:border-[#1a1a1a]">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">ECG Label:</span>
-                      <span className="font-bold text-light-text dark:text-[#F2F2F2]">
-                        {mlResult.label === 'normal' ? 'Normal Sinus Rhythm' :
-                         mlResult.label === 'af_suspected' ? 'Atrial Fibrillation Suspected' :
-                         mlResult.label === 'other_rhythm' ? 'Other Rhythm Abnormality' :
-                         'Uncertain / Clinical Review'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Model Confidence:</span>
+                <div className="space-y-1.5 pt-2 border-t border-gray-100 dark:border-[#1a1a1a]">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-light-text-secondary dark:text-[#9A9A9A]">ECG Label:</span>
+                    <span className="font-bold text-light-text dark:text-[#F2F2F2]">
+                      {mlResult ? (
+                        mlResult.label === 'normal' ? 'Normal Sinus Rhythm' :
+                        mlResult.label === 'af_suspected' ? 'Atrial Fibrillation Suspected' :
+                        mlResult.label === 'other_rhythm' ? 'Other Rhythm Abnormality' :
+                        'Uncertain / Clinical Review'
+                      ) : (
+                        <span className="text-light-text-secondary dark:text-[#9A9A9A] font-normal italic flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#D99B3F] animate-pulse inline-block" />
+                          Awaiting 3 contiguous uploads (30s)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-light-text-secondary dark:text-[#9A9A9A]">Model Confidence:</span>
+                    {mlResult ? (
                       <div className="text-right">
                         <span className="font-mono font-bold text-[#1B7A6E]">{(mlResult.confidence * 100).toFixed(1)}%</span>
-                        <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] ml-1">(Model score, not medical certainty)</span>
+                        <span className="text-[9px] text-light-text-secondary dark:text-[#9A9A9A] ml-1">(Model score)</span>
                       </div>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Signal Quality:</span>
-                      <span className="font-mono font-bold capitalize">
-                        {mlResult.quality === 'usable' ? 'Usable Signal' : mlResult.quality === 'poor_signal' ? 'Poor Signal' : mlResult.quality}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-light-text-secondary dark:text-[#9A9A9A]">Clinical Review:</span>
-                      <span className={`font-bold ${mlResult.requires_review ? 'text-[#D99B3F]' : 'text-[#22c55e]'}`}>
-                        {mlResult.requires_review ? 'Required (Must not be treated as final diagnosis)' : 'Standard'}
-                      </span>
-                    </div>
+                    ) : (
+                      <span className="font-mono text-light-text-secondary dark:text-[#9A9A9A]">—</span>
+                    )}
                   </div>
-                ) : (
-                  <div className="pt-1 border-t border-gray-100 dark:border-[#1a1a1a] space-y-1">
-                    <div className="flex items-center gap-1.5 text-xs text-light-text-secondary dark:text-[#9A9A9A]">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#D99B3F] animate-pulse" />
-                      <span>Uploads 1 &amp; 2 return motion only. Awaiting 3 contiguous uploads to produce 30s ECG classification.</span>
-                    </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-light-text-secondary dark:text-[#9A9A9A]">Signal Quality:</span>
+                    <span className="font-mono font-bold capitalize">
+                      {mlResult ? (
+                        mlResult.quality === 'usable' ? 'Usable Signal' : mlResult.quality === 'poor_signal' ? 'Poor Signal' : mlResult.quality
+                      ) : (
+                        <span className="font-mono text-light-text-secondary dark:text-[#9A9A9A] font-normal">Pending 30s analysis</span>
+                      )}
+                    </span>
                   </div>
-                )}
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-light-text-secondary dark:text-[#9A9A9A]">Clinical Review:</span>
+                    {mlResult ? (
+                      <span className={`font-bold ${mlResult.requires_review ? 'text-[#D99B3F]' : 'text-[#1B7A6E]'}`}>
+                        {mlResult.requires_review ? 'Required' : 'Standard'}
+                      </span>
+                    ) : (
+                      <span className="text-light-text-secondary dark:text-[#9A9A9A] font-normal">—</span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Research and Development Advisory */}
-              <div className="px-2 py-1 bg-[#D99B3F]/10 border border-[#D99B3F]/20 rounded-sm">
-                <p className="text-[9px] text-[#D99B3F] font-mono leading-relaxed">
-                  ⚠ Revision {mlResult?.model_version || 3} model output for research and development — requires clinical review. Not a final medical diagnosis.
-                </p>
-              </div>
             </div>
           </div>
         </div>
+
+        {/* ML Chart 1 — ECG Rhythm History */}
+        {mlAnalyses.length > 0 && (
+          <div className="card-3d p-5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] flex items-center">
+                  <Activity size={13} className="mr-1.5 text-[#1B7A6E]" /> ECG Rhythm History
+                </h3>
+                <p className="text-[9px] text-light-text-secondary dark:text-[#555] mt-0.5">Bar height = model confidence · Color = classification label · Last {mlAnalyses.length} analyses</p>
+              </div>
+              <div className="flex items-center gap-3 text-[9px] font-bold uppercase tracking-widest">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#1B7A6E]" /> Normal</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#C4453D]" /> AF</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#D99B3F]" /> Other</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#9A9A9A]" /> Uncertain</span>
+              </div>
+            </div>
+            <div className="h-[260px] bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-3 border border-gray-100 dark:border-[#1a1a1a]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={mlAnalyses.map((r, i) => ({
+                    idx: i + 1,
+                    confidence: Math.round((Number(r.confidence) || 0) * 100),
+                    label: r.label || 'uncertain_review',
+                    quality: r.quality || 'usable',
+                    requires_review: r.requires_review,
+                    time: r.created_at ? new Date(r.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : `#${i+1}`,
+                    fill: r.label === 'normal' ? '#1B7A6E' : r.label === 'af_suspected' ? '#C4453D' : r.label === 'other_rhythm' ? '#D99B3F' : '#9A9A9A',
+                  }))}
+                  margin={{ top: 8, right: 12, left: -10, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="rhythmGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#1B7A6E" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#1B7A6E" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" opacity={0.4} />
+                  <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#9A9A9A' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                  <RechartsTooltip
+                    contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', fontSize: '10px', color: '#F2F2F2', borderRadius: '4px' }}
+                    formatter={(val: any, _: any, props: any) => {
+                      const { label, quality, requires_review } = props.payload;
+                      const labelStr = label === 'normal' ? 'Normal Sinus' : label === 'af_suspected' ? 'AF Suspected' : label === 'other_rhythm' ? 'Other Rhythm' : 'Uncertain / Review';
+                      return [
+                        <span key="v">{val}% confidence — <b>{labelStr}</b><br />Quality: {quality === 'poor_signal' ? '⚠ Poor Signal' : '✓ Usable'}{requires_review ? ' · Review Required' : ''}</span>,
+                        ''
+                      ];
+                    }}
+                    labelFormatter={l => `Session: ${l}`}
+                  />
+                  <Area type="monotone" dataKey="confidence" stroke="#1B7A6E" strokeWidth={1.5} fill="url(#rhythmGrad)" isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Bar grid below showing label color per session */}
+            <div className="mt-3 flex items-end gap-1 h-10 px-1">
+              {mlAnalyses.map((r, i) => {
+                const conf = Number(r.confidence) || 0;
+                const color = r.label === 'normal' ? '#1B7A6E' : r.label === 'af_suspected' ? '#C4453D' : r.label === 'other_rhythm' ? '#D99B3F' : '#9A9A9A';
+                const heightPct = Math.max(15, Math.round(conf * 100));
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${r.label} · ${Math.round(conf * 100)}% · ${r.quality}`}>
+                    <div
+                      className="w-full rounded-t-sm transition-all"
+                      style={{ height: `${heightPct}%`, backgroundColor: color, opacity: 0.3 + conf * 0.7 }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[8px] text-[#9A9A9A] mt-0.5 px-1">
+              <span>Oldest</span>
+              <span className="text-[#555] text-center">↑ confidence · color = label</span>
+              <span>Latest</span>
+            </div>
+          </div>
+        )}
+
+        {/* ML Chart 2 — Posture Timeline */}
+        {motionHistory.length > 0 && (
+          <div className="card-3d p-5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] flex items-center">
+                  <Activity size={13} className="mr-1.5 text-[#D99B3F]" /> Posture Timeline
+                </h3>
+                <p className="text-[9px] text-light-text-secondary dark:text-[#555] mt-0.5">Opacity = motion model confidence · Color = posture verdict · Last {motionHistory.length} uploads</p>
+              </div>
+              <div className="flex items-center gap-3 text-[9px] font-bold uppercase tracking-widest">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#1B7A6E]" /> Supine</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#D99B3F]" /> Upright</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#C4453D]" /> Walking</span>
+              </div>
+            </div>
+            <div className="h-[140px] bg-gray-50 dark:bg-[#0a0a0a] rounded-sm p-3 border border-gray-100 dark:border-[#1a1a1a] flex items-center">
+              <div className="flex w-full h-12 gap-0.5">
+                {motionHistory.map((r, i) => {
+                  const m = r.motion_result || {};
+                  const verdict = m.verdict || 'unknown';
+                  const conf = Number(m.confidence) || 0.5;
+                  const color = verdict === 'supine' ? '#1B7A6E' : verdict === 'upright_stationary' ? '#D99B3F' : verdict === 'walking' ? '#C4453D' : '#9A9A9A';
+                  const label = verdict === 'supine' ? 'Supine' : verdict === 'upright_stationary' ? 'Upright' : verdict === 'walking' ? 'Walking' : verdict;
+                  const timeStr = r.created_at ? new Date(r.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : `#${i+1}`;
+                  return (
+                    <div
+                      key={i}
+                      className="flex-1 rounded-sm cursor-default transition-opacity hover:opacity-100 relative group"
+                      style={{ backgroundColor: color, opacity: 0.2 + conf * 0.8 }}
+                      title={`${label} · ${Math.round(conf * 100)}% confidence · ${timeStr}`}
+                    >
+                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center z-10">
+                        <div className="bg-[#0a0a0a] border border-[#262626] rounded px-1.5 py-0.5 text-[8px] text-[#F2F2F2] whitespace-nowrap">
+                          {label} · {Math.round(conf * 100)}%
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-between text-[8px] text-[#9A9A9A] mt-2 px-1">
+              <span>Oldest upload</span>
+              <span>Latest upload</span>
+            </div>
+          </div>
+        )}
+
+        {/* ML Chart 3 — Signal Quality Ratio */}
+        {mlAnalyses.length > 0 && (() => {
+          const usable = mlAnalyses.filter(r => r.quality === 'usable').length;
+          const poor = mlAnalyses.length - usable;
+          const pct = Math.round((usable / mlAnalyses.length) * 100);
+          const radius = 36;
+          const circ = 2 * Math.PI * radius;
+          const usableArc = (usable / mlAnalyses.length) * circ;
+          return (
+            <div className="card-3d p-5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A] mb-4 flex items-center">
+                <Activity size={13} className="mr-1.5 text-[#1B7A6E]" /> Signal Quality Ratio
+              </h3>
+              <div className="flex items-center gap-8">
+                {/* SVG Donut */}
+                <div className="relative flex-none">
+                  <svg width="96" height="96" viewBox="0 0 96 96">
+                    <circle cx="48" cy="48" r={radius} fill="none" stroke="#C4453D" strokeWidth="12" />
+                    <circle
+                      cx="48" cy="48" r={radius} fill="none"
+                      stroke="#1B7A6E" strokeWidth="12"
+                      strokeDasharray={`${usableArc} ${circ}`}
+                      strokeDashoffset={circ / 4}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-lg font-bold text-light-text dark:text-[#F2F2F2]">{pct}%</span>
+                    <span className="text-[8px] uppercase tracking-widest text-[#9A9A9A]">usable</span>
+                  </div>
+                </div>
+                {/* Stats */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-[#1B7A6E]" />
+                    <span className="text-xs font-bold text-light-text dark:text-[#F2F2F2]">{usable} usable</span>
+                    <span className="text-[9px] text-[#9A9A9A]">sessions</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-[#C4453D]" />
+                    <span className="text-xs font-bold text-light-text dark:text-[#F2F2F2]">{poor} poor signal</span>
+                    <span className="text-[9px] text-[#9A9A9A]">sessions</span>
+                  </div>
+                  {poor > usable && (
+                    <div className="mt-1 text-[9px] text-[#C4453D] font-mono bg-[#C4453D]/5 border border-[#C4453D]/20 rounded px-2 py-1">
+                      ⚠ Most sessions have poor signal — check device placement
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 4. Recent Alarms Timeline */}
         <div className="card-3d p-3.5 bg-white dark:bg-[#121212] rounded-sm border border-gray-100 dark:border-[#262626]">
@@ -928,7 +1024,7 @@ export default function DevicesPage({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsDbDrawerOpen(true)}
-                className="flex items-center gap-1.5 text-[10px] font-bold text-[#1B7A6E] uppercase tracking-widest bg-[#1B7A6E]/10 hover:bg-[#1B7A6E]/20 px-2.5 py-1 rounded-sm border border-[#1B7A6E]/30 transition-colors"
+                className="flex items-center gap-1.5 text-[10px] font-bold text-white uppercase tracking-widest bg-[#1B7A6E] hover:bg-[#145F56] px-2.5 py-1 rounded-sm shadow-sm transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[#1B7A6E]"
                 title="Open Database Tables side drawer"
               >
                 <Database size={12} /> DB Tables
@@ -1190,7 +1286,7 @@ export default function DevicesPage({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsDbDrawerOpen(true)}
-              className="px-3 py-1 bg-[#181818] hover:bg-[#252525] border border-[#1B7A6E]/40 text-[#1B7A6E] rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm flex items-center gap-1.5"
               title="Open Database Tables side drawer"
             >
               <Database size={12} /> DB Tables
@@ -1198,16 +1294,18 @@ export default function DevicesPage({
             {onViewTelemetry && (
               <button
                 onClick={() => onViewTelemetry(device.id)}
-                className="px-3 py-1 bg-gray-100 dark:bg-[#1a1a1a] hover:bg-gray-200 dark:hover:bg-[#262626] border border-gray-300 dark:border-[#333] rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer"
+                className="px-3 py-1.5 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm flex items-center gap-1.5"
+                title="View Telemetry Data & Analysis"
               >
-                Telemetry
+                <Activity size={12} /> Telemetry
               </button>
             )}
             <button
               onClick={() => onManageCommands(device.id)}
-              className="px-3 py-1 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm"
+              className="px-3 py-1.5 bg-[#1B7A6E] hover:bg-[#145F56] text-white rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] cursor-pointer shadow-sm flex items-center gap-1.5"
+              title="Open Device Command Interface"
             >
-              Command
+              <Zap size={12} /> Command
             </button>
           </div>
         </div>

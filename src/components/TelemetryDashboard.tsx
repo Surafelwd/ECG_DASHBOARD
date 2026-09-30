@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect } from 'react';
-import { Activity, RotateCcw, ZoomIn, ChevronDown, Clock, Database, Calendar } from 'lucide-react';
+import { Activity, RotateCcw, ZoomIn, ChevronDown, Clock, Database, Calendar, ArrowLeft } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -18,6 +18,7 @@ export interface TelemetryDashboardProps {
   deviceId: string;
   ownerName?: string;
   context: 'device-detail' | 'command-center';
+  onBack?: () => void;
 }
 
 // --- Helpers ---
@@ -257,7 +258,7 @@ function SessionPicker({ sessions, selectedSessionId, onSelect }: {
 }
 
 // --- Main Component ---
-export default function TelemetryDashboard({ deviceId, ownerName, context }: TelemetryDashboardProps) {
+export default function TelemetryDashboard({ deviceId, ownerName, context, onBack }: TelemetryDashboardProps) {
   const { data, sessions, selectedSessionId, setSelectedSessionId, connectionStatus, packetCount, clearBuffers } = useTelemetryStream(deviceId);
 
   const latestData = data[data.length - 1] || { accelX: 0, accelY: 0, accelZ: 0, ecg1: 0, ecg2: 0, magnitude: 0 };
@@ -270,6 +271,16 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
       {/* ── Global Header ── */}
       <div className="flex-none flex flex-wrap items-center justify-between gap-3 px-4 py-2 border-b border-gray-200 dark:border-[#262626] bg-light-card dark:bg-[#111]">
         <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-2.5 py-1 mr-1 bg-gray-100 hover:bg-gray-200 dark:bg-[#1f1f1f] dark:hover:bg-[#2b2b2b] text-light-text dark:text-[#F2F2F2] border border-gray-300 dark:border-[#333] rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[#1B7A6E]"
+              title="Back to Device"
+            >
+              <ArrowLeft size={13} className="text-[#1B7A6E]" />
+              <span>Back</span>
+            </button>
+          )}
           <div className="w-6 h-6 bg-[#1B7A6E]/10 flex items-center justify-center rounded-sm">
             <Activity size={14} className="text-[#1B7A6E]" />
           </div>
@@ -316,9 +327,9 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
         <div className="flex-none flex items-center gap-4 px-4 py-1.5 bg-[#1B7A6E]/5 border-b border-[#1B7A6E]/20 text-[9px] font-bold uppercase tracking-widest text-[#1B7A6E]">
           <span className="flex items-center gap-1.5"><Calendar size={10} /> {new Date(selectedSession.startTime).toLocaleDateString([], { timeZone: 'UTC' })}</span>
           <span className="flex items-center gap-1.5"><Clock size={10} /> {formatDuration(selectedSession.durationMs)} recording</span>
-          <span className="flex items-center gap-1.5"><Database size={10} /> {selectedSession.sampleCount.toLocaleString()} samples → {packetCount.toLocaleString()} displayed</span>
-          {selectedSession.sampleCount > packetCount && (
-            <span className="text-[#D99B3F]">↓ Downsampled {Math.round(selectedSession.sampleCount / packetCount)}×</span>
+          <span className="flex items-center gap-1.5"><Database size={10} /> {selectedSession.sampleCount.toLocaleString()} samples{packetCount < selectedSession.sampleCount ? ` · ${packetCount.toLocaleString()} displayed` : ' · displayed in full'}</span>
+          {packetCount < selectedSession.sampleCount && (
+            <span className="text-[#D99B3F]">↓ {Math.round(selectedSession.sampleCount / packetCount)}× downsampled</span>
           )}
         </div>
       )}
@@ -355,9 +366,9 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
                 { label: 'ACCEL X', value: latestData.accelX, unit: 'mg',  color: '#1B7A6E' },
                 { label: 'ACCEL Y', value: latestData.accelY, unit: 'mg',  color: '#D99B3F' },
                 { label: 'ACCEL Z', value: latestData.accelZ, unit: 'mg',  color: '#C4453D' },
-                { label: 'ECG CH1', value: latestData.ecg1,   unit: 'mV',  color: '#22c55e' },
-                { label: 'ECG CH2', value: latestData.ecg2,   unit: 'mV',  color: '#3b82f6' },
-                { label: '|Mag|',   value: latestData.magnitude, unit: 'mg', color: '#6366f1' },
+                { label: 'ECG CH1', value: latestData.ecg1,   unit: 'mV',  color: '#1B7A6E' },
+                { label: 'ECG CH2', value: latestData.ecg2,   unit: 'mV',  color: '#D99B3F' },
+                { label: '|Mag|',   value: latestData.magnitude, unit: 'mg', color: '#C4453D' },
               ].map((m) => (
                 <div key={m.label} className="flex flex-col">
                   <span className="text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]">{m.label}</span>
@@ -393,36 +404,36 @@ export default function TelemetryDashboard({ deviceId, ownerName, context }: Tel
           {/* 2. Magnitude */}
           <ChartHero
             title="Magnitude" tag="Vector Sum — mg"
-            accentColor="#6366f1" data={data}
+            accentColor="#C4453D" data={data}
             yKeys={['magnitude']} defaultYDomain={[0, 2000]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#6366f1]" /> |Mag|</span>}
+            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#C4453D]" /> |Mag|</span>}
           >
             {() => (
-              <Line type="monotone" dataKey="magnitude" name="|Mag| (mg)" stroke="#6366f1" strokeWidth={2} dot={data.length < 50} isAnimationActive={false} />
+              <Line type="monotone" dataKey="magnitude" name="|Mag| (mg)" stroke="#C4453D" strokeWidth={2} dot={data.length < 50} isAnimationActive={false} />
             )}
           </ChartHero>
 
           {/* 3. ECG Channel 1 */}
           <ChartHero
             title="ECG Channel 1" tag="Lead I — mV"
-            accentColor="#22c55e" data={data}
+            accentColor="#1B7A6E" data={data}
             yKeys={['ecg1']} defaultYDomain={[-2, 2]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#22c55e]" /> CH1</span>}
+            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#1B7A6E]" /> CH1</span>}
           >
             {() => (
-              <Line type="monotone" dataKey="ecg1" name="ECG CH1 (mV)" stroke="#22c55e" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
+              <Line type="monotone" dataKey="ecg1" name="ECG CH1 (mV)" stroke="#1B7A6E" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
             )}
           </ChartHero>
 
           {/* 4. ECG Channel 2 */}
           <ChartHero
             title="ECG Channel 2" tag="Lead II — mV"
-            accentColor="#3b82f6" data={data}
+            accentColor="#D99B3F" data={data}
             yKeys={['ecg2']} defaultYDomain={[-2, 2]}
-            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#3b82f6]" /> CH2</span>}
+            legend={<span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-light-text-secondary dark:text-[#9A9A9A]"><div className="w-3 h-0.5 bg-[#D99B3F]" /> CH2</span>}
           >
             {() => (
-              <Line type="monotone" dataKey="ecg2" name="ECG CH2 (mV)" stroke="#3b82f6" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
+              <Line type="monotone" dataKey="ecg2" name="ECG CH2 (mV)" stroke="#D99B3F" strokeWidth={1.5} dot={data.length < 50} isAnimationActive={false} />
             )}
           </ChartHero>
 
