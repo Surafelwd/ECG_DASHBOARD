@@ -273,7 +273,7 @@ export default function App() {
               onClick={() => setIsNavMenuOpen(o => !o)}
               className="flex items-center gap-2 font-bold text-sm tracking-widest uppercase text-[#1B7A6E] outline-none focus-visible:ring-2 focus-visible:ring-[#1B7A6E] rounded-sm p-1 -ml-1"
             >
-              Pulse Platform
+              TIRTATRACE
               <ChevronDown size={15} className={`transition-transform ${isNavMenuOpen ? 'rotate-180' : ''}`} />
             </button>
             {isNavMenuOpen && (

@@ -333,16 +333,9 @@ export default function DeviceFleetDashboard({
           </div>
 
           <div className="relative z-10 flex flex-col items-center justify-center text-center max-w-4xl mx-auto space-y-5">
-            
-            {/* Hardware Eyebrow Badge */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1B7A6E]/10 border border-[#1B7A6E]/30 text-[#1B7A6E] text-xs font-bold uppercase tracking-widest backdrop-blur-md">
-              <span className="w-2 h-2 rounded-full bg-[#1B7A6E] animate-ping" />
-              <span>Custom Medical IoT Hardware · Rev 1.0 (Mar 2026)</span>
-            </div>
-
             {/* Title */}
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-tight text-slate-900 dark:text-white">
-              ECG + IMU + LTE LOGGER
+              TIRTATRACE
               <span className="block text-lg sm:text-xl md:text-2xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-[#1B7A6E] via-[#3ADB8F] to-[#D99B3F] mt-2">
                 Continuous Ambulatory Telemetry & Edge Intelligence
               </span>
@@ -364,14 +357,6 @@ export default function DeviceFleetDashboard({
                 <Server size={14} />
                 <span>Explore Device Fleet</span>
                 <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono">{computedMetrics.totalDevices}</span>
-              </button>
-
-              <button
-                onClick={() => onNavigateToTelemetry()}
-                className="px-6 py-2.5 bg-white/70 dark:bg-white/5 hover:bg-white/95 dark:hover:bg-white/10 text-slate-900 dark:text-[#F2F2F2] border border-slate-300 dark:border-white/15 rounded-xl text-xs font-bold uppercase tracking-wider transition-all backdrop-blur-md hover:-translate-y-0.5 flex items-center gap-2 cursor-pointer shadow-sm"
-              >
-                <Activity size={14} className="text-[#1B7A6E]" />
-                <span>Live Telemetry Stream</span>
               </button>
 
               <button
@@ -401,7 +386,7 @@ export default function DeviceFleetDashboard({
                 <div className="relative w-full h-full">
                   <img
                     src="/ecg_device_transparent.png"
-                    alt="ECG + IMU + LTE LOGGER REV 1.0 Custom Hardware"
+                    alt="TIRTATRACE REV 1.0 Custom Hardware"
                     className="w-full h-full object-contain pointer-events-none select-none drop-shadow-2xl"
                   />
 
