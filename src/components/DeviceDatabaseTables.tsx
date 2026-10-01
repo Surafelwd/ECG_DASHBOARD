@@ -33,7 +33,7 @@ export default function DeviceDatabaseTables({
   const [pageSize, setPageSize] = useState<number>(100);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [totalCount, setTotalCount] = useState<number>(0);
+  const [totalCount, setTotalCount] = useState<number | string>(0);
   const [tableRows, setTableRows] = useState<any[]>([]);
 
   // Overview data & overall counts
@@ -41,6 +41,7 @@ export default function DeviceDatabaseTables({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isTableLoading, setIsTableLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [tableError, setTableError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [selectedJsonRow, setSelectedJsonRow] = useState<any | null>(null);
@@ -85,18 +86,30 @@ export default function DeviceDatabaseTables({
   // Fetch paginated rows for the active table
   const fetchActiveTable = useCallback(async (devId: string, tableKey: string, page: number, limit: number) => {
     setIsTableLoading(true);
+    setTableError(null);
     try {
       const res = await fetch(
         `/api/device-db-tables/${encodeURIComponent(devId)}?table=${encodeURIComponent(tableKey)}&page=${page}&limit=${limit}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setTableRows(json.rows || []);
-      setTotalCount(json.totalCount || 0);
-      setTotalPages(json.totalPages || 1);
-      setCurrentPage(json.page || 1);
+      if (json.queryFailed || json.error) {
+        setTableError(json.error || 'Database query failed');
+        setTableRows([]);
+        setTotalCount('query failed');
+        setTotalPages(1);
+      } else {
+        setTableRows(json.rows || []);
+        setTotalCount(json.totalCount || 0);
+        setTotalPages(json.totalPages || 1);
+        setCurrentPage(json.page || 1);
+        setTableError(null);
+      }
     } catch (err: any) {
       console.error(`Failed to fetch table ${tableKey}:`, err);
+      setTableError(err.message || 'Database query failed');
+      setTotalCount('query failed');
+      setTableRows([]);
     } finally {
       setIsTableLoading(false);
     }
@@ -159,8 +172,24 @@ export default function DeviceDatabaseTables({
     motionResults: 0,
   };
 
-  const startRecord = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const endRecord = Math.min(currentPage * pageSize, totalCount);
+  const isQueryFailed = (c: any) => c === 'query failed' || c === 'error';
+  const formatBadgeCount = (val: number | string | undefined) => {
+    if (isQueryFailed(val)) {
+      return <span className="text-rose-400 font-semibold">query failed</span>;
+    }
+    if (typeof val === 'number') {
+      return val.toLocaleString();
+    }
+    return val ?? '0';
+  };
+
+  const publicFailed = isQueryFailed(counts.sessions) || isQueryFailed(counts.readings) || isQueryFailed(counts.events);
+  const networkFailed = isQueryFailed(counts.networkLocation);
+  const mlFailed = isQueryFailed(counts.uploadPackets) || isQueryFailed(counts.analysisJobs) || isQueryFailed(counts.analysisResults) || isQueryFailed(counts.motionResults);
+
+  const numericTotalCount = typeof totalCount === 'number' ? totalCount : 0;
+  const startRecord = numericTotalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endRecord = Math.min(currentPage * pageSize, numericTotalCount);
 
   return (
     <div className="h-full w-full flex flex-col bg-[#0d0d0d] text-gray-200 overflow-hidden font-sans select-none">
@@ -250,7 +279,11 @@ export default function DeviceDatabaseTables({
             <Layers size={13} />
             <span>Public</span>
             <span className="ml-1 text-[10px] font-mono px-1 rounded bg-black/40 text-gray-200">
-              {(counts.sessions + counts.readings + counts.events).toLocaleString()}
+              {publicFailed ? (
+                <span className="text-rose-400 font-semibold">query failed</span>
+              ) : (
+                ((Number(counts.sessions) || 0) + (Number(counts.readings) || 0) + (Number(counts.events) || 0)).toLocaleString()
+              )}
             </span>
           </button>
 
@@ -265,7 +298,11 @@ export default function DeviceDatabaseTables({
             <Radio size={13} />
             <span>Network Location</span>
             <span className="ml-1 text-[10px] font-mono px-1 rounded bg-black/40 text-gray-200">
-              {counts.networkLocation.toLocaleString()}
+              {networkFailed ? (
+                <span className="text-rose-400 font-semibold">query failed</span>
+              ) : (
+                (Number(counts.networkLocation) || 0).toLocaleString()
+              )}
             </span>
           </button>
 
@@ -280,7 +317,11 @@ export default function DeviceDatabaseTables({
             <Cpu size={13} />
             <span>ECG ML</span>
             <span className="ml-1 text-[10px] font-mono px-1 rounded bg-black/40 text-gray-200">
-              {(counts.uploadPackets + counts.analysisJobs + counts.analysisResults + (counts.motionResults || 0)).toLocaleString()}
+              {mlFailed ? (
+                <span className="text-rose-400 font-semibold">query failed</span>
+              ) : (
+                ((Number(counts.uploadPackets) || 0) + (Number(counts.analysisJobs) || 0) + (Number(counts.analysisResults) || 0) + (Number(counts.motionResults) || 0)).toLocaleString()
+              )}
             </span>
           </button>
         </div>
@@ -297,7 +338,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                telemetry_sessions ({counts.sessions.toLocaleString()})
+                telemetry_sessions ({formatBadgeCount(counts.sessions)})
               </button>
               <button
                 onClick={() => setPublicSubTab('readings')}
@@ -307,7 +348,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                readings ({counts.readings.toLocaleString()})
+                readings ({formatBadgeCount(counts.readings)})
               </button>
               <button
                 onClick={() => setPublicSubTab('events')}
@@ -317,7 +358,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                events ({counts.events.toLocaleString()})
+                events ({formatBadgeCount(counts.events)})
               </button>
             </>
           )}
@@ -332,7 +373,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                analysis_results ({counts.analysisResults.toLocaleString()})
+                analysis_results ({formatBadgeCount(counts.analysisResults)})
               </button>
               <button
                 onClick={() => setMlSubTab('motion_results')}
@@ -342,7 +383,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                motion_results ({(counts.motionResults || 0).toLocaleString()})
+                motion_results ({formatBadgeCount(counts.motionResults)})
               </button>
               <button
                 onClick={() => setMlSubTab('analysis_jobs')}
@@ -352,7 +393,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                analysis_jobs ({counts.analysisJobs.toLocaleString()})
+                analysis_jobs ({formatBadgeCount(counts.analysisJobs)})
               </button>
               <button
                 onClick={() => setMlSubTab('upload_packets')}
@@ -362,7 +403,7 @@ export default function DeviceDatabaseTables({
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                upload_packets ({counts.uploadPackets.toLocaleString()})
+                upload_packets ({formatBadgeCount(counts.uploadPackets)})
               </button>
             </>
           )}
@@ -378,10 +419,23 @@ export default function DeviceDatabaseTables({
               Loading {activeTableKey} records ({startRecord.toLocaleString()}–{endRecord.toLocaleString()})...
             </span>
           </div>
-        ) : error ? (
-          <div className="p-6 m-4 rounded bg-rose-950/20 border border-rose-900/40 text-rose-300 text-xs font-mono flex items-start gap-3">
-            <AlertCircle size={18} className="shrink-0 text-rose-400 mt-0.5" />
-            <div>{error}</div>
+        ) : error || tableError || (overviewData?.tableErrors?.[activeTableKey]) ? (
+          <div className="p-6 m-4 rounded bg-rose-950/30 border border-rose-800/60 text-rose-200 font-mono flex items-start gap-3">
+            <AlertCircle size={20} className="shrink-0 text-rose-400 mt-0.5" />
+            <div className="space-y-1.5 flex-1">
+              <div className="font-bold text-rose-300 flex items-center gap-2">
+                <span>Database Query Failed</span>
+                <span className="px-1.5 py-0.5 rounded bg-rose-900/60 text-rose-200 text-[10px] uppercase tracking-wider">
+                  Table: {activeTableKey}
+                </span>
+              </div>
+              <div className="text-xs text-rose-200/90 whitespace-pre-wrap bg-black/50 p-3 rounded border border-rose-900/50">
+                {tableError || overviewData?.tableErrors?.[activeTableKey] || error}
+              </div>
+              <p className="text-[11px] text-gray-400 pt-1">
+                The database query for this table encountered an error rather than returning 0 rows. Check database logs or table schema.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="min-w-full">
@@ -477,7 +531,7 @@ export default function DeviceDatabaseTables({
           </div>
 
           <span className="text-gray-400 text-[11px]">
-            Showing <b className="text-white">{startRecord.toLocaleString()}</b>–<b className="text-white">{endRecord.toLocaleString()}</b> of <b className="text-[#1B7A6E]">{totalCount.toLocaleString()}</b>
+            Showing <b className="text-white">{startRecord.toLocaleString()}</b>–<b className="text-white">{endRecord.toLocaleString()}</b> of <b className={totalCount === 'query failed' ? 'text-rose-400 font-bold' : 'text-[#1B7A6E]'}>{typeof totalCount === 'number' ? totalCount.toLocaleString() : 'query failed'}</b>
           </span>
         </div>
 

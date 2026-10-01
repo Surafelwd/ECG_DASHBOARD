@@ -19,6 +19,14 @@ async function startServer() {
   const ML_SERVICE_URL = process.env.ML_SERVICE_URL?.replace(/\/+$/, '');
   const ML_SERVICE_API_KEY = process.env.ML_SERVICE_API_KEY;
 
+  if (!ML_SERVICE_URL || !ML_SERVICE_API_KEY) {
+    console.warn('[ML Service Configuration Warning] ML forwarding is DISABLED:');
+    if (!ML_SERVICE_URL) console.warn('  -> ML_SERVICE_URL is missing or empty.');
+    if (!ML_SERVICE_API_KEY) console.warn('  -> ML_SERVICE_API_KEY is missing or empty.');
+  } else {
+    console.log(`[ML Service Configuration] ML forwarding active -> URL: ${ML_SERVICE_URL} (API key configured)`);
+  }
+
   // Auto-ensure ecg_ml schema and all tables exist on Neon
   db.execute(sql`
     CREATE SCHEMA IF NOT EXISTS ecg_ml;
@@ -88,7 +96,16 @@ async function startServer() {
     received_at: string;
     csv_text: string;
   }) {
-    if (!ML_SERVICE_URL || !ML_SERVICE_API_KEY) return;
+    if (!ML_SERVICE_URL || !ML_SERVICE_API_KEY) {
+      console.warn('[ML Service Forward] Skipping upload forwarding: ML_SERVICE_URL or ML_SERVICE_API_KEY is missing.');
+      return;
+    }
+
+    console.log(`[ML Service Forward] Forwarding upload to POST ${ML_SERVICE_URL}/v1/ecg/uploads`);
+    console.log(`  - Upload ID: ${payload.upload_id}`);
+    console.log(`  - Device ID: ${payload.device_id}`);
+    console.log(`  - Receive Time: ${payload.received_at}`);
+    console.log(`  - CSV Payload Size: ${payload.csv_text.length} bytes`);
 
     const MAX_RETRIES = 5;
     const RETRY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
@@ -104,6 +121,11 @@ async function startServer() {
           body: JSON.stringify(payload),
         });
 
+        // Always read the response body as text first for logging (DO NOT log API key)
+        const responseBody = await mlRes.text().catch(() => '');
+        console.log(`[ML Service Forward] HTTP Status: ${mlRes.status} ${mlRes.statusText}`);
+        console.log(`[ML Service Forward] Response Body: ${responseBody}`);
+
         // Retry ML requests that return 503 (or 502/504/429) without discarding the original upload
         if (mlRes.status === 503 || mlRes.status === 502 || mlRes.status === 504 || mlRes.status === 429) {
           if (attempt < MAX_RETRIES) {
@@ -115,15 +137,20 @@ async function startServer() {
         }
 
         if (!mlRes.ok) {
-          const errText = await mlRes.text().catch(() => '');
-          console.warn(`[ML Service Forward] Received HTTP ${mlRes.status}:`, errText);
+          console.warn(`[ML Service Forward] Received HTTP ${mlRes.status}:`, responseBody);
           return;
         }
 
         console.log(`[ML Service Forward] Accepted upload ${payload.upload_id} for device ${payload.device_id}`);
 
         // Parse JSON response from ML Service
-        const mlData: any = await mlRes.json().catch(() => null);
+        let mlData: any = null;
+        try {
+          mlData = JSON.parse(responseBody);
+        } catch {
+          console.warn('[ML Service Forward] Response body was not valid JSON');
+          return;
+        }
         if (!mlData) return;
 
         // 1. Store motion_result (for every 10-second upload)
@@ -439,13 +466,20 @@ async function startServer() {
 
       // Asynchronously forward to ECG ML Service if configured (ECG_ML_SERVICE_INTEGRATION)
       // Do not make the board wait for ML inference; retry 503 without discarding original upload
-      if (ML_SERVICE_URL && ML_SERVICE_API_KEY && typeof req.body === 'string') {
+      if (!ML_SERVICE_URL || !ML_SERVICE_API_KEY) {
+        console.warn(`[ML Service Forward Warning] Skipping ML forward for upload ${sessionId} (device ${device.id}): ` +
+          (!ML_SERVICE_URL && !ML_SERVICE_API_KEY ? 'Both ML_SERVICE_URL and ML_SERVICE_API_KEY are missing' :
+           !ML_SERVICE_URL ? 'ML_SERVICE_URL is missing' : 'ML_SERVICE_API_KEY is missing'));
+      } else if (typeof req.body !== 'string' || !req.body.trim()) {
+        console.warn(`[ML Service Forward Warning] Skipping ML forward for upload ${sessionId}: payload body is not a CSV string.`);
+      } else {
         const mlPayload = {
           upload_id: sessionId,
           device_id: device.id,
           received_at: new Date().toISOString(),
           csv_text: req.body,
         };
+        // Fire asynchronously so board immediately gets 200 response
         forwardUploadToMlService(mlPayload).catch(err => {
           console.warn('[ML Service] Async forward error:', err?.message || err);
         });
@@ -794,69 +828,86 @@ async function startServer() {
     const limit = Math.min(Math.max(1, Number(req.query.limit) || 100), 1000);
     const offset = (page - 1) * limit;
 
+    // Helper to safely execute queries, logging errors and preventing silent 0/empty masking
+    async function safeQuery<T>(name: string, queryPromise: Promise<T>): Promise<{ ok: boolean; data: T | null; error: string | null }> {
+      try {
+        const data = await queryPromise;
+        return { ok: true, data, error: null };
+      } catch (err: any) {
+        console.error(`[DB Explorer Error] Table "${name}":`, err.message || err);
+        return { ok: false, data: null, error: err.message || String(err) };
+      }
+    }
+
     try {
       // 1. If a specific single table is requested for pagination:
       if (requestedTable) {
         let rows: any[] = [];
-        let totalCount = 0;
+        let totalCount: number | 'query failed' = 0;
+        let queryError: string | null = null;
 
         switch (requestedTable) {
           case 'sessions': {
-            const [[c], data] = await Promise.all([
-              db.select({ count: sql<number>`count(*)::int` }).from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId)).catch(() => [{ count: 0 }]),
-              db.select().from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId)).orderBy(desc(telemetry_sessions.estimated_end_time)).limit(limit).offset(offset).catch(() => [])
+            const [cRes, dataRes] = await Promise.all([
+              safeQuery('sessions:count', db.select({ count: sql<number>`count(*)::int` }).from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId))),
+              safeQuery('sessions:data', db.select().from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId)).orderBy(desc(telemetry_sessions.estimated_end_time)).limit(limit).offset(offset))
             ]);
-            totalCount = Number(c?.count || 0);
-            rows = data;
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data || []) : [];
             break;
           }
           case 'readings': {
-            const [[c], data] = await Promise.all([
-              db.select({ count: sql<number>`count(*)::int` }).from(readings).where(eq(readings.device_id, deviceId)).catch(() => [{ count: 0 }]),
-              db.select().from(readings).where(eq(readings.device_id, deviceId)).orderBy(desc(readings.time)).limit(limit).offset(offset).catch(() => [])
+            const [cRes, dataRes] = await Promise.all([
+              safeQuery('readings:count', db.select({ count: sql<number>`count(*)::int` }).from(readings).where(eq(readings.device_id, deviceId))),
+              safeQuery('readings:data', db.select().from(readings).where(eq(readings.device_id, deviceId)).orderBy(desc(readings.time)).limit(limit).offset(offset))
             ]);
-            totalCount = Number(c?.count || 0);
-            rows = data;
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data || []) : [];
             break;
           }
           case 'events': {
-            const [[c], data] = await Promise.all([
-              db.select({ count: sql<number>`count(*)::int` }).from(events).where(eq(events.device_id, deviceId)).catch(() => [{ count: 0 }]),
-              db.select().from(events).where(eq(events.device_id, deviceId)).orderBy(desc(events.id)).limit(limit).offset(offset).catch(() => [])
+            const [cRes, dataRes] = await Promise.all([
+              safeQuery('events:count', db.select({ count: sql<number>`count(*)::int` }).from(events).where(eq(events.device_id, deviceId))),
+              safeQuery('events:data', db.select().from(events).where(eq(events.device_id, deviceId)).orderBy(desc(events.id)).limit(limit).offset(offset))
             ]);
-            totalCount = Number(c?.count || 0);
-            rows = data;
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data || []) : [];
             break;
           }
           case 'network_location': {
-            const [[c], data] = await Promise.all([
-              db.select({ count: sql<number>`count(*)::int` }).from(network_location).where(eq(network_location.device_id, deviceId)).catch(() => [{ count: 0 }]),
-              db.select().from(network_location).where(eq(network_location.device_id, deviceId)).orderBy(desc(network_location.recorded_at)).limit(limit).offset(offset).catch(() => [])
+            const [cRes, dataRes] = await Promise.all([
+              safeQuery('network_location:count', db.select({ count: sql<number>`count(*)::int` }).from(network_location).where(eq(network_location.device_id, deviceId))),
+              safeQuery('network_location:data', db.select().from(network_location).where(eq(network_location.device_id, deviceId)).orderBy(desc(network_location.recorded_at)).limit(limit).offset(offset))
             ]);
-            totalCount = Number(c?.count || 0);
-            rows = data;
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data || []) : [];
             break;
           }
           case 'upload_packets': {
             const [cRes, dataRes] = await Promise.all([
-              db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.upload_packets WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-              db.execute(sql`
+              safeQuery('upload_packets:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.upload_packets WHERE device_id = ${deviceId}`)),
+              safeQuery('upload_packets:data', db.execute(sql`
                 SELECT upload_id, device_id, start_ms, end_ms, body_sha256, received_at, created_at,
                        length(csv_text) as csv_bytes
                 FROM ecg_ml.upload_packets
                 WHERE device_id = ${deviceId}
                 ORDER BY received_at DESC
                 LIMIT ${limit} OFFSET ${offset}
-              `).catch(() => ({ rows: [] }))
+              `))
             ]);
-            totalCount = Number(cRes?.rows?.[0]?.count || 0);
-            rows = dataRes?.rows || [];
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.rows?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data?.rows || []) : [];
             break;
           }
           case 'analysis_jobs': {
             const [cRes, dataRes] = await Promise.all([
-              db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_jobs WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-              db.execute(sql`
+              safeQuery('analysis_jobs:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_jobs WHERE device_id = ${deviceId}`)),
+              safeQuery('analysis_jobs:data', db.execute(sql`
                 SELECT job_id, device_id, first_upload_id, second_upload_id, third_upload_id,
                        model_sha256, status, attempts, next_attempt_at, lease_expires_at,
                        last_error_code, created_at, updated_at
@@ -864,16 +915,17 @@ async function startServer() {
                 WHERE device_id = ${deviceId}
                 ORDER BY created_at DESC
                 LIMIT ${limit} OFFSET ${offset}
-              `).catch(() => ({ rows: [] }))
+              `))
             ]);
-            totalCount = Number(cRes?.rows?.[0]?.count || 0);
-            rows = dataRes?.rows || [];
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.rows?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data?.rows || []) : [];
             break;
           }
           case 'analysis_results': {
             const [cRes, dataRes] = await Promise.all([
-              db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_results WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-              db.execute(sql`
+              safeQuery('analysis_results:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_results WHERE device_id = ${deviceId}`)),
+              safeQuery('analysis_results:data', db.execute(sql`
                 SELECT job_id, schema_version, model_version, model_sha256, development_only,
                        device_id, input_start_ms, input_end_ms, label, quality, confidence,
                        requires_review, created_at
@@ -881,25 +933,27 @@ async function startServer() {
                 WHERE device_id = ${deviceId}
                 ORDER BY created_at DESC
                 LIMIT ${limit} OFFSET ${offset}
-              `).catch(() => ({ rows: [] }))
+              `))
             ]);
-            totalCount = Number(cRes?.rows?.[0]?.count || 0);
-            rows = dataRes?.rows || [];
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.rows?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data?.rows || []) : [];
             break;
           }
           case 'motion_results': {
             const [cRes, dataRes] = await Promise.all([
-              db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.motion_results WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-              db.execute(sql`
+              safeQuery('motion_results:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.motion_results WHERE device_id = ${deviceId}`)),
+              safeQuery('motion_results:data', db.execute(sql`
                 SELECT id, device_id, upload_id, motion_result, created_at
                 FROM ecg_ml.motion_results
                 WHERE device_id = ${deviceId}
                 ORDER BY created_at DESC
                 LIMIT ${limit} OFFSET ${offset}
-              `).catch(() => ({ rows: [] }))
+              `))
             ]);
-            totalCount = Number(cRes?.rows?.[0]?.count || 0);
-            rows = dataRes?.rows || [];
+            queryError = cRes.error || dataRes.error;
+            totalCount = cRes.ok ? Number(cRes.data?.rows?.[0]?.count || 0) : 'query failed';
+            rows = dataRes.ok ? (dataRes.data?.rows || []) : [];
             break;
           }
           default:
@@ -913,17 +967,19 @@ async function startServer() {
           limit,
           offset,
           totalCount,
-          totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+          totalPages: typeof totalCount === 'number' ? Math.max(1, Math.ceil(totalCount / limit)) : 1,
           rows,
+          queryFailed: !!queryError,
+          error: queryError,
         });
       }
 
       // 2. Fetch full overview with counts and first page for each table
       const [
-        [cSessions],
-        [cReadings],
-        [cEvents],
-        [cNetwork],
+        cSessions,
+        cReadings,
+        cEvents,
+        cNetwork,
         cUploadsRes,
         cJobsRes,
         cResultsRes,
@@ -937,37 +993,37 @@ async function startServer() {
         analysisResultsResult,
         motionResultsResult,
       ] = await Promise.all([
-        db.select({ count: sql<number>`count(*)::int` }).from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId)).catch(() => [{ count: 0 }]),
-        db.select({ count: sql<number>`count(*)::int` }).from(readings).where(eq(readings.device_id, deviceId)).catch(() => [{ count: 0 }]),
-        db.select({ count: sql<number>`count(*)::int` }).from(events).where(eq(events.device_id, deviceId)).catch(() => [{ count: 0 }]),
-        db.select({ count: sql<number>`count(*)::int` }).from(network_location).where(eq(network_location.device_id, deviceId)).catch(() => [{ count: 0 }]),
-        db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.upload_packets WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-        db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_jobs WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-        db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_results WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
-        db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.motion_results WHERE device_id = ${deviceId}`).catch(() => ({ rows: [{ count: 0 }] })),
+        safeQuery('sessions:count', db.select({ count: sql<number>`count(*)::int` }).from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId))),
+        safeQuery('readings:count', db.select({ count: sql<number>`count(*)::int` }).from(readings).where(eq(readings.device_id, deviceId))),
+        safeQuery('events:count', db.select({ count: sql<number>`count(*)::int` }).from(events).where(eq(events.device_id, deviceId))),
+        safeQuery('network_location:count', db.select({ count: sql<number>`count(*)::int` }).from(network_location).where(eq(network_location.device_id, deviceId))),
+        safeQuery('upload_packets:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.upload_packets WHERE device_id = ${deviceId}`)),
+        safeQuery('analysis_jobs:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_jobs WHERE device_id = ${deviceId}`)),
+        safeQuery('analysis_results:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.analysis_results WHERE device_id = ${deviceId}`)),
+        safeQuery('motion_results:count', db.execute(sql`SELECT count(*)::int as count FROM ecg_ml.motion_results WHERE device_id = ${deviceId}`)),
 
-        db.select().from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId)).orderBy(desc(telemetry_sessions.estimated_end_time)).limit(limit).catch(() => []),
-        db.select().from(readings).where(eq(readings.device_id, deviceId)).orderBy(desc(readings.time)).limit(limit).catch(() => []),
-        db.select().from(events).where(eq(events.device_id, deviceId)).orderBy(desc(events.id)).limit(limit).catch(() => []),
-        db.select().from(network_location).where(eq(network_location.device_id, deviceId)).orderBy(desc(network_location.recorded_at)).limit(limit).catch(() => []),
-        db.execute(sql`
+        safeQuery('sessions:data', db.select().from(telemetry_sessions).where(eq(telemetry_sessions.device_id, deviceId)).orderBy(desc(telemetry_sessions.estimated_end_time)).limit(limit)),
+        safeQuery('readings:data', db.select().from(readings).where(eq(readings.device_id, deviceId)).orderBy(desc(readings.time)).limit(limit)),
+        safeQuery('events:data', db.select().from(events).where(eq(events.device_id, deviceId)).orderBy(desc(events.id)).limit(limit)),
+        safeQuery('network_location:data', db.select().from(network_location).where(eq(network_location.device_id, deviceId)).orderBy(desc(network_location.recorded_at)).limit(limit)),
+        safeQuery('upload_packets:data', db.execute(sql`
           SELECT upload_id, device_id, start_ms, end_ms, body_sha256, received_at, created_at,
                  length(csv_text) as csv_bytes
           FROM ecg_ml.upload_packets
           WHERE device_id = ${deviceId}
           ORDER BY received_at DESC
           LIMIT ${limit}
-        `).catch(() => ({ rows: [] })),
-        db.execute(sql`
+        `)),
+        safeQuery('analysis_jobs:data', db.execute(sql`
           SELECT job_id, device_id, first_upload_id, second_upload_id, third_upload_id,
                  model_sha256, status, attempts, next_attempt_at, lease_expires_at,
                  last_error_code, created_at, updated_at
-                FROM ecg_ml.analysis_jobs
+          FROM ecg_ml.analysis_jobs
           WHERE device_id = ${deviceId}
           ORDER BY created_at DESC
           LIMIT ${limit}
-        `).catch(() => ({ rows: [] })),
-        db.execute(sql`
+        `)),
+        safeQuery('analysis_results:data', db.execute(sql`
           SELECT job_id, schema_version, model_version, model_sha256, development_only,
                  device_id, input_start_ms, input_end_ms, label, quality, confidence,
                  requires_review, created_at
@@ -975,25 +1031,36 @@ async function startServer() {
           WHERE device_id = ${deviceId}
           ORDER BY created_at DESC
           LIMIT ${limit}
-        `).catch(() => ({ rows: [] })),
-        db.execute(sql`
+        `)),
+        safeQuery('motion_results:data', db.execute(sql`
           SELECT id, device_id, upload_id, motion_result, created_at
           FROM ecg_ml.motion_results
           WHERE device_id = ${deviceId}
           ORDER BY created_at DESC
           LIMIT ${limit}
-        `).catch(() => ({ rows: [] })),
+        `)),
       ]);
 
-      const counts = {
-        sessions: Number(cSessions?.count || 0),
-        readings: Number(cReadings?.count || 0),
-        events: Number(cEvents?.count || 0),
-        networkLocation: Number(cNetwork?.count || 0),
-        uploadPackets: Number(cUploadsRes?.rows?.[0]?.count || 0),
-        analysisJobs: Number(cJobsRes?.rows?.[0]?.count || 0),
-        analysisResults: Number(cResultsRes?.rows?.[0]?.count || 0),
-        motionResults: Number(cMotionRes?.rows?.[0]?.count || 0),
+      const counts: Record<string, number | 'query failed'> = {
+        sessions: cSessions.ok ? Number(cSessions.data?.[0]?.count || 0) : 'query failed',
+        readings: cReadings.ok ? Number(cReadings.data?.[0]?.count || 0) : 'query failed',
+        events: cEvents.ok ? Number(cEvents.data?.[0]?.count || 0) : 'query failed',
+        networkLocation: cNetwork.ok ? Number(cNetwork.data?.[0]?.count || 0) : 'query failed',
+        uploadPackets: cUploadsRes.ok ? Number(cUploadsRes.data?.rows?.[0]?.count || 0) : 'query failed',
+        analysisJobs: cJobsRes.ok ? Number(cJobsRes.data?.rows?.[0]?.count || 0) : 'query failed',
+        analysisResults: cResultsRes.ok ? Number(cResultsRes.data?.rows?.[0]?.count || 0) : 'query failed',
+        motionResults: cMotionRes.ok ? Number(cMotionRes.data?.rows?.[0]?.count || 0) : 'query failed',
+      };
+
+      const tableErrors = {
+        sessions: cSessions.error || sessionsList.error || null,
+        readings: cReadings.error || readingsList.error || null,
+        events: cEvents.error || eventsList.error || null,
+        networkLocation: cNetwork.error || networkLocationList.error || null,
+        uploadPackets: cUploadsRes.error || uploadPacketsResult.error || null,
+        analysisJobs: cJobsRes.error || analysisJobsResult.error || null,
+        analysisResults: cResultsRes.error || analysisResultsResult.error || null,
+        motionResults: cMotionRes.error || motionResultsResult.error || null,
       };
 
       res.json({
@@ -1001,18 +1068,19 @@ async function startServer() {
         page,
         limit,
         public: {
-          sessions: sessionsList,
-          readings: readingsList,
-          events: eventsList,
+          sessions: sessionsList.ok ? (sessionsList.data || []) : [],
+          readings: readingsList.ok ? (readingsList.data || []) : [],
+          events: eventsList.ok ? (eventsList.data || []) : [],
         },
-        networkLocation: networkLocationList,
+        networkLocation: networkLocationList.ok ? (networkLocationList.data || []) : [],
         ecgMl: {
-          uploadPackets: uploadPacketsResult?.rows || [],
-          analysisJobs: analysisJobsResult?.rows || [],
-          analysisResults: analysisResultsResult?.rows || [],
-          motionResults: motionResultsResult?.rows || [],
+          uploadPackets: uploadPacketsResult.ok ? (uploadPacketsResult.data?.rows || []) : [],
+          analysisJobs: analysisJobsResult.ok ? (analysisJobsResult.data?.rows || []) : [],
+          analysisResults: analysisResultsResult.ok ? (analysisResultsResult.data?.rows || []) : [],
+          motionResults: motionResultsResult.ok ? (motionResultsResult.data?.rows || []) : [],
         },
         counts,
+        tableErrors,
       });
     } catch (err) {
       console.error('Error fetching device database tables:', err);

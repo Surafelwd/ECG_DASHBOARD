@@ -253,7 +253,7 @@ export default function App() {
   };
 
   const NAV_LINKS = [
-    { id: 'dashboard',      label: 'Dashboard' },
+    { id: 'dashboard',      label: 'Home' },
     { id: 'devices',        label: 'Devices' },
     { id: 'fleet_map',      label: 'Fleet Map' },
     { id: 'alarms',         label: 'Alarms' },
@@ -401,10 +401,6 @@ export default function App() {
           <DeviceFleetDashboard
             availableDevices={devices}
             alarms={allAlarms}
-            connectivityTrendData={DEMO_CONNECTIVITY_TREND}
-            alarmTrendData={DEMO_ALARM_TREND}
-            firmwareBreakdown={DEMO_FIRMWARE_BREAKDOWN}
-            recentActivity={DEMO_ACTIVITY}
             sparklines={DEMO_SPARKLINES}
             onSearchDevice={(id) => navigateToCommandCenter(id)}
             onNavigateToDevices={() => navigateToDevices()}
@@ -417,6 +413,8 @@ export default function App() {
             onNavigateToCommandCenter={(id) => navigateToCommandCenter(id)}
             onViewCommand={(id) => navigateToCommandCenter(id)}
             onViewAlarm={() => navigateToAlarms()}
+            onNavigateToFleetMap={() => setCurrentView('fleet_map')}
+            onNavigateToTelemetry={(id) => navigateToTelemetry(id || devices[0]?.id || 'DEV-0198')}
           />
         )}
         {currentView === 'alarms' && (
